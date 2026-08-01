@@ -114,6 +114,46 @@ class TestUsageAccountSection:
 
 
     @pytest.mark.asyncio
+    async def test_new_session_shows_account_limits_from_runtime_provider(self, monkeypatch):
+        """Account limits must not depend on the session having token usage."""
+        runner = _make_runner(SK)
+        session_entry = MagicMock()
+        session_entry.session_id = "new-session"
+        runner.session_store.get_or_create_session.return_value = session_entry
+        runner.session_store.load_transcript.return_value = []
+
+        monkeypatch.setattr(
+            "gateway.run._resolve_runtime_agent_kwargs",
+            lambda: {
+                "provider": "openai-codex",
+                "base_url": "https://chatgpt.com/backend-api/codex",
+                "api_key": "test-token",
+            },
+        )
+        monkeypatch.setattr(
+            "gateway.slash_commands.fetch_account_usage",
+            lambda provider, base_url=None, api_key=None: object(),
+        )
+        monkeypatch.setattr(
+            "gateway.slash_commands.render_account_usage_lines",
+            lambda snapshot, markdown=False: [
+                "📈 **Account limits**",
+                "Provider: openai-codex (Pro)",
+            ],
+        )
+        monkeypatch.setattr("agent.account_usage.nous_credits_lines", lambda markdown=False: [])
+
+        event = MagicMock()
+        event.source = MagicMock()
+        event.get_command_args.return_value = ""
+
+        result = await runner._handle_usage_command(event)
+
+        assert "📈 **Account limits**" in result
+        assert "No usage data available" not in result
+
+
+    @pytest.mark.asyncio
     async def test_usage_command_uses_persisted_provider_when_agent_not_running(self, monkeypatch):
         runner = _make_runner(SK)
         runner._session_db = AsyncSessionDB(MagicMock())
@@ -236,4 +276,3 @@ class TestUsageContextBreakdown:
         assert "60%" in result     # 6000 / 10000
         # Zero-token category is dropped, not rendered.
         assert "Conversation" not in result
-

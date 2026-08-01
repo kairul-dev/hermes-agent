@@ -4789,6 +4789,22 @@ class GatewaySlashCommandsMixin:
             provider = provider or persisted.get("billing_provider")
             base_url = base_url or persisted.get("billing_base_url")
 
+        # A brand-new session has neither a resident agent nor persisted
+        # billing metadata yet. Resolve the configured runtime as a final
+        # fallback so account limits remain visible before the first model
+        # call. The live/persisted session provider continues to win for
+        # existing sessions that may use a different provider.
+        if not provider:
+            try:
+                from gateway.run import _resolve_runtime_agent_kwargs
+
+                runtime = await asyncio.to_thread(_resolve_runtime_agent_kwargs)
+            except Exception:
+                runtime = {}
+            provider = runtime.get("provider")
+            base_url = base_url or runtime.get("base_url")
+            api_key = api_key or runtime.get("api_key")
+
         if wants_reset:
             normalized_provider = str(provider or "").strip().lower()
             if normalized_provider != "openai-codex":
