@@ -1779,6 +1779,7 @@ def init_agent(
     agent._pending_cli_user_message = None
     agent._last_flushed_db_idx = 0  # tracks DB-write cursor to prevent duplicate writes
     agent._session_db_created = False  # DB row deferred to run_conversation()
+    agent._kanban_worker_session_bound = False
     # Most agents own their session row and should finalize it on close().
     # Some temporary helper agents (manual compression / session-hygiene /
     # background-review forks) rotate or share the session forward to a

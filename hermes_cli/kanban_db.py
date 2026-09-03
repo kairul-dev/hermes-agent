@@ -134,6 +134,10 @@ VALID_BLOCK_KINDS = {"dependency", "needs_input", "capability", "transient"}
 BLOCK_RECURRENCE_LIMIT = 2
 VALID_WORKSPACE_KINDS = {"scratch", "worktree", "dir"}
 
+# Public API capability advertised by the Kanban dashboard when run rows carry
+# a canonical, CAS-protected Hermes worker-session identity.
+RUN_SESSION_BINDING_CAPABILITY = "kanban.run.worker_session_id.v1"
+
 
 def normalize_reasoning_effort(effort: Optional[str]) -> Optional[str]:
     """Normalize a per-task reasoning effort into a storable level.
@@ -1259,6 +1263,7 @@ class Run:
     worker_pid: Optional[int]
     max_runtime_seconds: Optional[int]
     last_heartbeat_at: Optional[int]
+    worker_session_id: Optional[str]
     started_at: int
     ended_at: Optional[int]
     outcome: Optional[str]
@@ -1283,6 +1288,7 @@ class Run:
             worker_pid=row["worker_pid"],
             max_runtime_seconds=row["max_runtime_seconds"],
             last_heartbeat_at=row["last_heartbeat_at"],
+            worker_session_id=row["worker_session_id"],
             started_at=int(row["started_at"]),
             ended_at=(int(row["ended_at"]) if row["ended_at"] is not None else None),
             outcome=row["outcome"],
@@ -1467,6 +1473,8 @@ CREATE TABLE IF NOT EXISTS task_runs (
     worker_pid          INTEGER,
     max_runtime_seconds INTEGER,
     last_heartbeat_at   INTEGER,
+    -- Canonical durable identity of the Hermes session executing this run.
+    worker_session_id   TEXT,
     started_at          INTEGER NOT NULL,
     ended_at            INTEGER,
     outcome             TEXT,
@@ -2719,6 +2727,23 @@ def _migrate_add_optional_columns(conn: sqlite3.Connection) -> None:
         "ON task_events(run_id, id)"
     )
 
+    # Durable run -> worker-session attribution. Historical rows remain NULL;
+    # workers on this schema bind the field before any model or tool work.
+    run_table_exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'task_runs'"
+    ).fetchone()
+    if run_table_exists:
+        run_cols = {
+            row["name"] for row in conn.execute("PRAGMA table_info(task_runs)")
+        }
+        if "worker_session_id" not in run_cols:
+            _add_column_if_missing(
+                conn,
+                "task_runs",
+                "worker_session_id",
+                "worker_session_id TEXT",
+            )
+
     notify_table_exists = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='kanban_notify_subs'"
     ).fetchone() is not None
@@ -2885,7 +2910,8 @@ _REBUILD_SPECS = {
         " task_id TEXT NOT NULL, profile TEXT, step_key TEXT,"
         " status TEXT NOT NULL, claim_lock TEXT, claim_expires INTEGER,"
         " worker_pid INTEGER, max_runtime_seconds INTEGER,"
-        " last_heartbeat_at INTEGER, started_at INTEGER NOT NULL,"
+        " last_heartbeat_at INTEGER, worker_session_id TEXT,"
+        " started_at INTEGER NOT NULL,"
         " ended_at INTEGER, outcome TEXT, summary TEXT, metadata TEXT,"
         " error TEXT)",
         (
@@ -4332,6 +4358,77 @@ def _append_event(
     )
 
 
+def _recover_worker_session_id(
+    conn: sqlite3.Connection,
+    *,
+    task_id: str,
+    run_id: int,
+    profile: Optional[str],
+    claim_lock: str,
+) -> Optional[str]:
+    """Recover the session-created-before-bind crash window.
+
+    Session creation and Kanban binding live in separate SQLite databases, so
+    no transaction can cover both. The session INSERT atomically carries an
+    exact board/task/run/claim marker. If the process dies after that commit but
+    before the Kanban CAS, run closure uses the marker to finish the binding.
+    """
+    try:
+        board_row = conn.execute("PRAGMA database_list").fetchone()
+        board_path = Path(str(board_row["file"] or "")).resolve()
+        from hermes_cli.profiles import resolve_profile_env
+
+        state_path = Path(resolve_profile_env(profile or "default")) / "state.db"
+        if not state_path.is_file():
+            return None
+        state_uri = f"file:{state_path.resolve().as_posix()}?mode=ro"
+        state = sqlite3.connect(state_uri, uri=True, timeout=1.0)
+        state.row_factory = sqlite3.Row
+        try:
+            rows = state.execute(
+                "SELECT id, origin_json FROM sessions "
+                "WHERE source = 'kanban' AND origin_json IS NOT NULL"
+            ).fetchall()
+        finally:
+            state.close()
+    except Exception:
+        _log.debug(
+            "Could not inspect the worker session recovery marker for run %s",
+            run_id,
+            exc_info=True,
+        )
+        return None
+
+    matches: set[str] = set()
+    for row in rows:
+        try:
+            marker = json.loads(row["origin_json"]).get("kanban_run", {})
+        except Exception:
+            continue
+        if (
+            str(marker.get("db_fingerprint") or "")
+            == hashlib.sha256(str(board_path).encode("utf-8")).hexdigest()
+            and str(marker.get("task_id") or "") == task_id
+            and str(marker.get("run_id") or "") == str(run_id)
+            and str(marker.get("claim_fingerprint") or "")
+            == hashlib.sha256(claim_lock.encode("utf-8")).hexdigest()
+        ):
+            session_id = str(row["id"] or "").strip()
+            if session_id:
+                matches.add(session_id)
+
+    if len(matches) == 1:
+        return next(iter(matches))
+    if len(matches) > 1:
+        _log.error(
+            "Refusing ambiguous worker-session recovery for task=%s run=%s: %s",
+            task_id,
+            run_id,
+            sorted(matches),
+        )
+    return None
+
+
 def _end_run(
     conn: sqlite3.Connection,
     task_id: str,
@@ -4358,6 +4455,29 @@ def _end_run(
     if not row or not row["current_run_id"]:
         return None
     run_id = int(row["current_run_id"])
+    run_row = conn.execute(
+        "SELECT profile, claim_lock, worker_session_id FROM task_runs WHERE id = ?",
+        (run_id,),
+    ).fetchone()
+    if (
+        run_row is not None
+        and run_row["worker_session_id"] is None
+        and run_row["claim_lock"]
+    ):
+        recovered_session_id = _recover_worker_session_id(
+            conn,
+            task_id=task_id,
+            run_id=run_id,
+            profile=run_row["profile"],
+            claim_lock=run_row["claim_lock"],
+        )
+        if recovered_session_id:
+            conn.execute(
+                "UPDATE task_runs SET worker_session_id = ? "
+                "WHERE id = ? AND worker_session_id IS NULL "
+                "AND ended_at IS NULL AND claim_lock = ?",
+                (recovered_session_id, run_id, run_row["claim_lock"]),
+            )
     conn.execute(
         """
         UPDATE task_runs
@@ -4394,6 +4514,110 @@ def _current_run_id(conn: sqlite3.Connection, task_id: str) -> Optional[int]:
         "SELECT current_run_id FROM tasks WHERE id = ?", (task_id,),
     ).fetchone()
     return int(row["current_run_id"]) if row and row["current_run_id"] else None
+
+
+class RunSessionBindingError(RuntimeError):
+    """A worker session could not be safely attached to its claimed run."""
+
+
+class RunSessionBindingConflictError(RunSessionBindingError):
+    """The run is already attached to a different durable session."""
+
+
+def bind_worker_session(
+    conn: sqlite3.Connection,
+    *,
+    task_id: str,
+    run_id: int,
+    claim_lock: str,
+    session_id: str,
+) -> Run:
+    """CAS-bind the durable Hermes session that executes one claimed run.
+
+    The same session may repeat the call safely. A different session, an old
+    claim token, an ended run, or a run that is no longer the task's active run
+    fails closed. This prevents a stale/reclaimed worker from stealing the
+    attribution of a later attempt.
+    """
+    task_id = str(task_id or "").strip()
+    claim_lock = str(claim_lock or "").strip()
+    session_id = str(session_id or "").strip()
+    if not task_id or not claim_lock or not session_id:
+        raise ValueError("task_id, run_id, claim_lock, and session_id are required")
+    try:
+        run_id = int(run_id)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("run_id must be an integer") from exc
+
+    with write_txn(conn):
+        run_row = conn.execute(
+            "SELECT * FROM task_runs WHERE id = ? AND task_id = ?",
+            (run_id, task_id),
+        ).fetchone()
+        if run_row is None:
+            raise RunSessionBindingError(
+                f"run {run_id} does not belong to task {task_id}"
+            )
+        existing = str(run_row["worker_session_id"] or "").strip()
+        if existing:
+            if existing != session_id:
+                raise RunSessionBindingConflictError(
+                    f"run {run_id} is already bound to session {existing}"
+                )
+            return Run.from_row(run_row)
+
+        task_row = conn.execute(
+            "SELECT status, current_run_id, claim_lock FROM tasks WHERE id = ?",
+            (task_id,),
+        ).fetchone()
+        active_run_id = (
+            int(task_row["current_run_id"])
+            if task_row is not None and task_row["current_run_id"] is not None
+            else None
+        )
+        if (
+            task_row is None
+            or task_row["status"] != "running"
+            or active_run_id != run_id
+            or task_row["claim_lock"] != claim_lock
+            or run_row["status"] != "running"
+            or run_row["ended_at"] is not None
+            or run_row["claim_lock"] != claim_lock
+        ):
+            raise RunSessionBindingError(
+                f"run {run_id} is no longer active under this claim"
+            )
+
+        updated = conn.execute(
+            """
+            UPDATE task_runs
+               SET worker_session_id = ?
+             WHERE id = ?
+               AND task_id = ?
+               AND worker_session_id IS NULL
+               AND status = 'running'
+               AND ended_at IS NULL
+               AND claim_lock = ?
+            """,
+            (session_id, run_id, task_id, claim_lock),
+        )
+        if updated.rowcount != 1:
+            observed = conn.execute(
+                "SELECT worker_session_id FROM task_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+            observed_id = str(observed["worker_session_id"] or "").strip() if observed else ""
+            if observed_id and observed_id != session_id:
+                raise RunSessionBindingConflictError(
+                    f"run {run_id} is already bound to session {observed_id}"
+                )
+            raise RunSessionBindingError(f"run {run_id} binding CAS failed")
+
+        bound = conn.execute(
+            "SELECT * FROM task_runs WHERE id = ?", (run_id,)
+        ).fetchone()
+        assert bound is not None
+        return Run.from_row(bound)
 
 
 def _synthesize_ended_run(

@@ -310,6 +310,34 @@ def test_reopening_parent_demotes_ready_child(client):
     assert child_after_reopen["status"] == "todo"
 
 
+def test_run_session_binding_is_first_class_and_capability_advertised(client):
+    task = client.post(
+        "/api/plugins/kanban/tasks", json={"title": "bind", "assignee": "default"}
+    ).json()["task"]
+    conn = kb.connect()
+    try:
+        claimed = kb.claim_task(conn, task["id"], claimer="api-claim")
+        assert claimed is not None
+        run_id = kb.get_task(conn, task["id"]).current_run_id
+        kb.bind_worker_session(
+            conn,
+            task_id=task["id"],
+            run_id=run_id,
+            claim_lock="api-claim",
+            session_id="api-session",
+        )
+    finally:
+        conn.close()
+
+    detail = client.get(f"/api/plugins/kanban/tasks/{task['id']}").json()
+    assert kb.RUN_SESSION_BINDING_CAPABILITY in detail["capabilities"]
+    assert detail["runs"][0]["worker_session_id"] == "api-session"
+
+    direct = client.get(f"/api/plugins/kanban/runs/{run_id}").json()
+    assert kb.RUN_SESSION_BINDING_CAPABILITY in direct["capabilities"]
+    assert direct["run"]["worker_session_id"] == "api-session"
+
+
 def test_reopening_parent_retracts_review_and_blocks_approval(client):
     with kb.connect() as conn:
         parent_id = kb.create_task(conn, title="parent", assignee="planner")
@@ -1228,5 +1256,3 @@ def test_specify_happy_path(client, monkeypatch):
 # ---------------------------------------------------------------------------
 # Final result visibility for Done cards
 # ---------------------------------------------------------------------------
-
-

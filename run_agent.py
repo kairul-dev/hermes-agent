@@ -104,44 +104,67 @@ def _session_source_for_agent(platform: Optional[str]) -> str:
 
 
 def _gateway_origin_json(agent: "AIAgent") -> Optional[str]:
-    """Build the gateway routing ``origin_json`` for a session row.
+    """Build creation-time identity and recovery metadata for a session row.
 
     Mirrors the shape of ``SessionSource.to_dict()`` (platform, chat_id,
     chat_name, chat_type, user_id, user_name, thread_id, optional
     user_id_alt / profile) so consumers that read ``origin_json`` from
     state.db (channel directory, mcp_serve, mirror) see the same fields the
-    gateway's own ``record_gateway_session_peer`` would write. Returns None
-    when the agent carries no gateway identity (plain CLI session), matching
-    the previous identity-less creation.
+    gateway's own ``record_gateway_session_peer`` would write. Kanban workers
+    additionally persist an exact run/claim marker in the same atomic session
+    INSERT. That marker is only a crash-window recovery aid; the canonical
+    relationship lives on ``task_runs.worker_session_id``.
     """
     chat_id = getattr(agent, "_chat_id", None)
     session_key = getattr(agent, "_gateway_session_key", None)
     user_id = getattr(agent, "_user_id", None)
-    if not (chat_id or session_key or user_id):
-        return None
-    origin: Dict[str, Any] = {
-        "platform": getattr(agent, "platform", None) or "",
-        "chat_id": chat_id,
-        "chat_name": getattr(agent, "_chat_name", None),
-        "chat_type": getattr(agent, "_chat_type", None) or "dm",
-        "user_id": user_id,
-        "user_name": getattr(agent, "_user_name", None),
-        "thread_id": getattr(agent, "_thread_id", None),
-    }
-    user_id_alt = getattr(agent, "_user_id_alt", None)
-    if user_id_alt:
-        origin["user_id_alt"] = user_id_alt
-    profile = getattr(agent, "_profile_name", None)
-    if not profile:
-        try:
-            from hermes_cli.profiles import get_active_profile_name
-            profile = get_active_profile_name()
-            if profile == "default":
+    origin: Dict[str, Any] = {}
+    if chat_id or session_key or user_id:
+        origin.update({
+            "platform": getattr(agent, "platform", None) or "",
+            "chat_id": chat_id,
+            "chat_name": getattr(agent, "_chat_name", None),
+            "chat_type": getattr(agent, "_chat_type", None) or "dm",
+            "user_id": user_id,
+            "user_name": getattr(agent, "_user_name", None),
+            "thread_id": getattr(agent, "_thread_id", None),
+        })
+        user_id_alt = getattr(agent, "_user_id_alt", None)
+        if user_id_alt:
+            origin["user_id_alt"] = user_id_alt
+        profile = getattr(agent, "_profile_name", None)
+        if not profile:
+            try:
+                from hermes_cli.profiles import get_active_profile_name
+                profile = get_active_profile_name()
+                if profile == "default":
+                    profile = None
+            except Exception:
                 profile = None
-        except Exception:
-            profile = None
-    if profile:
-        origin["profile"] = profile
+        if profile:
+            origin["profile"] = profile
+
+    if _session_source_for_agent(getattr(agent, "platform", None)) == "kanban":
+        task_id = os.environ.get("HERMES_KANBAN_TASK", "").strip()
+        run_id = os.environ.get("HERMES_KANBAN_RUN_ID", "").strip()
+        claim_lock = os.environ.get("HERMES_KANBAN_CLAIM_LOCK", "").strip()
+        board = os.environ.get("HERMES_KANBAN_BOARD", "").strip()
+        db_path = os.environ.get("HERMES_KANBAN_DB", "").strip()
+        if task_id and run_id and claim_lock and board and db_path:
+            origin["kanban_run"] = {
+                "board": board,
+                "db_fingerprint": hashlib.sha256(
+                    str(Path(db_path).resolve()).encode("utf-8")
+                ).hexdigest(),
+                "task_id": task_id,
+                "run_id": run_id,
+                "claim_fingerprint": hashlib.sha256(
+                    claim_lock.encode("utf-8")
+                ).hexdigest(),
+            }
+
+    if not origin:
+        return None
     try:
         return json.dumps(origin)
     except Exception:
@@ -762,6 +785,40 @@ class AIAgent:
             logger.warning(
                 "Session DB creation failed (will retry next turn): %s", e
             )
+
+    def _bind_kanban_worker_session(self) -> None:
+        """Bind this durable session row to its claim-fenced Kanban run."""
+        if _session_source_for_agent(self.platform) != "kanban":
+            return
+        if getattr(self, "_kanban_worker_session_bound", False):
+            return
+        if not getattr(self, "_session_db_created", False):
+            raise RuntimeError(
+                "Kanban worker session row is not durable; refusing to start work"
+            )
+
+        task_id = os.environ.get("HERMES_KANBAN_TASK", "").strip()
+        run_id = os.environ.get("HERMES_KANBAN_RUN_ID", "").strip()
+        claim_lock = os.environ.get("HERMES_KANBAN_CLAIM_LOCK", "").strip()
+        if not task_id or not run_id or not claim_lock:
+            raise RuntimeError(
+                "Kanban worker attribution environment is incomplete; refusing to start work"
+            )
+
+        from hermes_cli import kanban_db
+
+        conn = kanban_db.connect()
+        try:
+            kanban_db.bind_worker_session(
+                conn,
+                task_id=task_id,
+                run_id=int(run_id),
+                claim_lock=claim_lock,
+                session_id=self.session_id,
+            )
+        finally:
+            conn.close()
+        self._kanban_worker_session_bound = True
 
     def _transition_context_engine_session(
         self,

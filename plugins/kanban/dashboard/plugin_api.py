@@ -226,6 +226,7 @@ def _run_dict(r: kanban_db.Run) -> dict[str, Any]:
         "worker_pid": r.worker_pid,
         "max_runtime_seconds": r.max_runtime_seconds,
         "last_heartbeat_at": r.last_heartbeat_at,
+        "worker_session_id": r.worker_session_id,
         "started_at": r.started_at,
         "ended_at": r.ended_at,
         "outcome": r.outcome,
@@ -572,6 +573,7 @@ def get_task(
             task_d["diagnostics"] = diag_list
             task_d["warnings"] = _warnings_summary_from_diagnostics(diag_list)
         return {
+            "capabilities": [kanban_db.RUN_SESSION_BINDING_CAPABILITY],
             "task": task_d,
             "comments": [_comment_dict(c) for c in kanban_db.list_comments(conn, task_id)],
             "events": [_event_dict(e) for e in kanban_db.list_events(conn, task_id)],
@@ -1627,7 +1629,10 @@ def get_run_endpoint(
         r = kanban_db.get_run(conn, run_id)
         if r is None:
             raise HTTPException(status_code=404, detail=f"run {run_id} not found")
-        return {"run": _run_dict(r)}
+        return {
+            "capabilities": [kanban_db.RUN_SESSION_BINDING_CAPABILITY],
+            "run": _run_dict(r),
+        }
     finally:
         conn.close()
 

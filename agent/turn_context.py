@@ -949,6 +949,14 @@ def build_turn_context(
         if not isinstance(pending_cli_message, dict) or pending_cli_message.get("_db_persisted"):
             agent._pending_cli_user_message = None
 
+    # A Kanban worker may not begin preflight, model, or tool work until the
+    # session row above exists and the active claim has CAS-bound that identity
+    # onto its run. Binding failures deliberately propagate so stale or
+    # conflicting workers fail closed before doing agent work.
+    bind_worker_session = getattr(agent, "_bind_kanban_worker_session", None)
+    if callable(bind_worker_session):
+        bind_worker_session()
+
     # ── Idle-triggered compaction (opt-in; ``idle_compact_after_seconds``) ──
     # When a session resumes after a long idle gap, compact the accumulated
     # history up front so the rest of the conversation does not keep re-reading
