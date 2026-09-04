@@ -1,0 +1,55 @@
+▶ no local venv — using Nix dev venv via HERMES_PYTHON: C:/Users/khairul/Projects/hermes-agent-forge-runtime/.venv/Scripts/python.exe
+▶ running per-file parallel test suite via run_tests_parallel.py
+  (TZ=UTC LANG=C.UTF-8 PYTHONHASHSEED=0; clean env)
+▶ pre-compiling bytecode cache
+▶ launching test runner
+Discovered 4 test files (~41 tests) under ['tests\\test_schema_read_probe.py', 'tests\\test_zeroed_state_db.py', 'tests\\test_state_db_malformed_repair.py', 'tests\\state\\test_session_model_usage_pk_heal.py']; running with -j 4
+[ 12.2% |     5/~41 | ✓5 | ✗0] ✓ tests\test_schema_read_probe.py (5✓, 2.8s)
+[ 22.0% |     9/~41 | ✓9 | ✗0] ✓ tests\state\test_session_model_usage_pk_heal.py (4✓, 5.8s)
+[ 41.5% |    17/~41 | ✓16 | ✗ 0] ✓ tests\test_zeroed_state_db.py (7✓ 1s, 11.3s)
+[100.0% |    41/~41 | ✓36 | ✗ 1] ✗ tests\test_state_db_malformed_repair.py (20✓ 1✗ 3s, 13.6s)
+
+  ╔╍ Failed: tests\test_state_db_malformed_repair.py ╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍
+  ║ ........F.sss...........                                                 [100%]
+  ║ ================================== FAILURES ===================================
+  ║ __________________ test_repair_rebuilds_stale_btree_indexes ___________________
+  ║ tests\test_state_db_malformed_repair.py:385: in test_repair_rebuilds_stale_btree_indexes
+  ║     assert "wrong # of entries in index idx_messages_session" in reason
+  ║ E   AssertionError: assert 'wrong # of entries in index idx_messages_session' in 'row 1 missing from index idx_messages_session; row 2 missing from index idx_messages_session; row 3 missing from index idx_messages_session'
+  ║ =========================== short test summary info ===========================
+  ║ FAILED tests/test_state_db_malformed_repair.py::test_repair_rebuilds_stale_btree_indexes
+  ║ 1 failed, 20 passed, 3 skipped in 11.09s
+  ║
+  ║  Repro: python -m pytest tests\test_state_db_malformed_repair.py -q --tb=short
+  ╚╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍
+
+
+=== Summary: 4 files, 36 tests passed, 1 failed, 4 skipped (100% complete) in 13.6s (4 workers) ===
+  Durations cached to test_durations.json (4 files)
+
+=== Per-file subprocess time distribution ===
+  Files:   4
+  Total subprocess CPU-wall: 33.6s  (runner wall: 13.6s, parallelism: 4x)
+  P50: 11.34s  P90: 13.64s  P95: 13.64s  P99: 13.64s  Max: 13.64s
+  <1s: 0 files (0%)  <2s: 0 files (0%)
+  Top 10 slowest:
+     13.64s  tests\test_state_db_malformed_repair.py
+     11.34s  tests\test_zeroed_state_db.py
+      5.83s  tests\state\test_session_model_usage_pk_heal.py
+      2.78s  tests\test_schema_read_probe.py
+
+=== Failure output ===
+
+--- tests\test_state_db_malformed_repair.py ---
+........F.sss...........                                                 [100%]
+================================== FAILURES ===================================
+__________________ test_repair_rebuilds_stale_btree_indexes ___________________
+tests\test_state_db_malformed_repair.py:385: in test_repair_rebuilds_stale_btree_indexes
+    assert "wrong # of entries in index idx_messages_session" in reason
+E   AssertionError: assert 'wrong # of entries in index idx_messages_session' in 'row 1 missing from index idx_messages_session; row 2 missing from index idx_messages_session; row 3 missing from index idx_messages_session'
+=========================== short test summary info ===========================
+FAILED tests/test_state_db_malformed_repair.py::test_repair_rebuilds_stale_btree_indexes
+1 failed, 20 passed, 3 skipped in 11.09s
+
+=== 1 file with test failures (1 test failed) ===
+  tests\test_state_db_malformed_repair.py  (1 test failed)

@@ -1,0 +1,22 @@
+▶ no local venv — using Nix dev venv via HERMES_PYTHON: C:/Users/khairul/Projects/hermes-agent-forge-runtime/.venv/Scripts/python.exe
+▶ running per-file parallel test suite via run_tests_parallel.py
+  (TZ=UTC LANG=C.UTF-8 PYTHONHASHSEED=0; clean env)
+▶ pre-compiling bytecode cache
+▶ launching test runner
+Discovered 3 test files (~12 tests) under ['tests\\hermes_cli\\test_stage4a_transport.py', 'tests\\hermes_cli\\test_stage4a_bootstrap.py', 'tests\\test_zeroed_state_db.py']; running with -j 1
+[  8.3% |     1/~12 | ✓2 | ✗0] ✓ tests\hermes_cli\test_stage4a_bootstrap.py (2✓, 4.2s)
+[ 33.3% |     4/~12 | ✓31 | ✗ 0] ✓ tests\hermes_cli\test_stage4a_transport.py (29✓, 18.6s)
+[100.0% |    12/~12 | ✓38 | ✗ 0] ✓ tests\test_zeroed_state_db.py (7✓ 1s, 9.5s)
+
+=== Summary: 3 files, 38 tests passed, 0 failed, 1 skipped (100% complete) in 32.4s (1 workers) ===
+  Durations cached to test_durations.json (3 files)
+
+=== Per-file subprocess time distribution ===
+  Files:   3
+  Total subprocess CPU-wall: 32.4s  (runner wall: 32.4s, parallelism: 1x)
+  P50: 9.50s  P90: 18.64s  P95: 18.64s  P99: 18.64s  Max: 18.64s
+  <1s: 0 files (0%)  <2s: 0 files (0%)
+  Top 10 slowest:
+     18.64s  tests\hermes_cli\test_stage4a_transport.py
+      9.50s  tests\test_zeroed_state_db.py
+      4.23s  tests\hermes_cli\test_stage4a_bootstrap.py

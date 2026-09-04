@@ -1,0 +1,22 @@
+▶ no local venv — using Nix dev venv via HERMES_PYTHON: C:/Users/khairul/Projects/hermes-agent-forge-runtime/.venv/Scripts/python.exe
+▶ running per-file parallel test suite via run_tests_parallel.py
+  (TZ=UTC LANG=C.UTF-8 PYTHONHASHSEED=0; clean env)
+▶ pre-compiling bytecode cache
+▶ launching test runner
+Discovered 3 test files (~53 tests) under ['tests\\state\\test_stage4a_remediation.py', 'tests\\state\\test_compression_lineage_guard.py', 'tests\\state\\test_stage4a_s4a06_cutover.py']; running with -j 4
+[ 30.2% |    16/~53 | ✓16 | ✗ 0] ✓ tests\state\test_compression_lineage_guard.py (16✓, 14.8s)
+[ 60.4% |    32/~53 | ✓43 | ✗ 0] ✓ tests\state\test_stage4a_remediation.py (27✓, 26.0s)
+[100.0% |    53/~53 | ✓94 | ✗ 0] ✓ tests\state\test_stage4a_s4a06_cutover.py (51✓, 36.2s)
+
+=== Summary: 3 files, 94 tests passed, 0 failed (100% complete) in 36.2s (4 workers) ===
+  Durations cached to test_durations.json (3 files)
+
+=== Per-file subprocess time distribution ===
+  Files:   3
+  Total subprocess CPU-wall: 76.9s  (runner wall: 36.2s, parallelism: 4x)
+  P50: 25.95s  P90: 36.19s  P95: 36.19s  P99: 36.19s  Max: 36.19s
+  <1s: 0 files (0%)  <2s: 0 files (0%)
+  Top 10 slowest:
+     36.19s  tests\state\test_stage4a_s4a06_cutover.py
+     25.95s  tests\state\test_stage4a_remediation.py
+     14.75s  tests\state\test_compression_lineage_guard.py

@@ -1,0 +1,67 @@
+▶ no local venv — using Nix dev venv via HERMES_PYTHON: C:/Users/khairul/Projects/hermes-agent-forge-runtime/.venv/Scripts/python.exe
+▶ running per-file parallel test suite via run_tests_parallel.py
+  (TZ=UTC LANG=C.UTF-8 PYTHONHASHSEED=0; clean env)
+▶ pre-compiling bytecode cache
+▶ launching test runner
+Discovered 1 test files (~35 tests) under ['tests\\hermes_cli\\test_dashboard_admin_endpoints.py']; running with -j 1
+[100.0% |    35/~35 | ✓0 | ✗1] ✗ tests\hermes_cli\test_dashboard_admin_endpoints.py (1✗, 4.3s)
+
+  ╔╍ Failed: tests\hermes_cli\test_dashboard_admin_endpoints.py ╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍
+  ║ F                                                                        [100%]
+  ║ ================================== FAILURES ===================================
+  ║ __________________ TestSystemStatsEndpoint.test_stats_shape ___________________
+  ║ tests\hermes_cli\test_dashboard_admin_endpoints.py:479: in test_stats_shape
+  ║     assert key in s and s[key]
+  ║ E   AssertionError: assert ('arch' in {'arch': '', 'cpu_count': 12, 'cpu_percent': 5.6, 'disk': {'free': 78186905600, 'percent': 84.3, 'total': 498984808448, 'used': 420797902848}, ...} and '')
+  ║ ----------------------------- Captured log setup ------------------------------
+  ║ INFO     hermes_cli.web_server:web_server.py:19405 Mounted plugin API routes: /api/plugins/hermes-achievements/
+  ║ INFO     hermes_cli.web_server:web_server.py:19405 Mounted plugin API routes: /api/plugins/kanban/
+  ║ ============================== warnings summary ===============================
+  ║ tests/hermes_cli/test_dashboard_admin_endpoints.py::TestSystemStatsEndpoint::test_stats_shape
+  ║   C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\b\tests\hermes_cli\test_dashboard_admin_endpoints.py:15: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  ║     from starlette.testclient import TestClient
+  ║
+  ║ -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+  ║ =========================== short test summary info ===========================
+  ║ FAILED tests/hermes_cli/test_dashboard_admin_endpoints.py::TestSystemStatsEndpoint::test_stats_shape
+  ║ 1 failed, 41 deselected, 1 warning in 1.77s
+  ║
+  ║  Repro: python -m pytest tests\hermes_cli\test_dashboard_admin_endpoints.py -k test_stats_shape -q --tb=short
+  ╚╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍
+
+
+=== Summary: 1 files, 0 tests passed, 1 failed (100% complete) in 4.3s (1 workers) ===
+  Durations cached to test_durations.json (1 files)
+
+=== Per-file subprocess time distribution ===
+  Files:   1
+  Total subprocess CPU-wall: 4.3s  (runner wall: 4.3s, parallelism: 1x)
+  P50: 4.31s  P90: 4.31s  P95: 4.31s  P99: 4.31s  Max: 4.31s
+  <1s: 0 files (0%)  <2s: 0 files (0%)
+  Top 10 slowest:
+      4.31s  tests\hermes_cli\test_dashboard_admin_endpoints.py
+
+=== Failure output ===
+
+--- tests\hermes_cli\test_dashboard_admin_endpoints.py ---
+F                                                                        [100%]
+================================== FAILURES ===================================
+__________________ TestSystemStatsEndpoint.test_stats_shape ___________________
+tests\hermes_cli\test_dashboard_admin_endpoints.py:479: in test_stats_shape
+    assert key in s and s[key]
+E   AssertionError: assert ('arch' in {'arch': '', 'cpu_count': 12, 'cpu_percent': 5.6, 'disk': {'free': 78186905600, 'percent': 84.3, 'total': 498984808448, 'used': 420797902848}, ...} and '')
+----------------------------- Captured log setup ------------------------------
+INFO     hermes_cli.web_server:web_server.py:19405 Mounted plugin API routes: /api/plugins/hermes-achievements/
+INFO     hermes_cli.web_server:web_server.py:19405 Mounted plugin API routes: /api/plugins/kanban/
+============================== warnings summary ===============================
+tests/hermes_cli/test_dashboard_admin_endpoints.py::TestSystemStatsEndpoint::test_stats_shape
+  C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\b\tests\hermes_cli\test_dashboard_admin_endpoints.py:15: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/hermes_cli/test_dashboard_admin_endpoints.py::TestSystemStatsEndpoint::test_stats_shape
+1 failed, 41 deselected, 1 warning in 1.77s
+
+=== 1 file with test failures (1 test failed) ===
+  tests\hermes_cli\test_dashboard_admin_endpoints.py  (1 test failed)

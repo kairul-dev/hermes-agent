@@ -1,0 +1,143 @@
+▶ no local venv — using Nix dev venv via HERMES_PYTHON: C:/Users/khairul/Projects/hermes-agent-forge-runtime/.venv/Scripts/python.exe
+▶ running per-file parallel test suite via run_tests_parallel.py
+  (TZ=UTC LANG=C.UTF-8 PYTHONHASHSEED=0; clean env)
+▶ pre-compiling bytecode cache
+▶ launching test runner
+Discovered 1 test files (~7 tests) under ['tests\\hermes_cli\\test_dashboard_param_clamps.py']; running with -j 1
+[100.0% |     7/~7 | ✓7 | ✗2] ✗ tests\hermes_cli\test_dashboard_param_clamps.py (7✓ 2✗, 7.0s)
+
+  ╔╍ Failed: tests\hermes_cli\test_dashboard_param_clamps.py ╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍
+  ║     _connect_and_init()
+  ║   File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\r\hermes_state.py", line 5632, in _connect_and_init
+  ║     self._init_schema()
+  ║   File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\r\hermes_state_schema.py", line 1705, in _init_schema
+  ║     self._ensure_usage_detail_activation(
+  ║   File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\r\hermes_state_schema.py", line 1385, in _ensure_usage_detail_activation
+  ║     raise RuntimeError(
+  ║ RuntimeError: incomplete trusted session usage cutover baseline
+  ║ _____________ TestAnalyticsDaysClamps.test_in_range_days_accepted _____________
+  ║
+  ║ self = <tests.hermes_cli.test_dashboard_param_clamps.TestAnalyticsDaysClamps object at 0x000001DD168CC510>
+  ║ client = <starlette.testclient.TestClient object at 0x000001DD17909DD0>
+  ║
+  ║     def test_in_range_days_accepted(self, client):
+  ║         r = client.get("/api/analytics/usage", params={"days": 30})
+  ║ >       assert r.status_code == 200
+  ║ E       assert 500 == 200
+  ║ E        +  where 500 = <Response [500 Internal Server Error]>.status_code
+  ║
+  ║ tests\hermes_cli\test_dashboard_param_clamps.py:62: AssertionError
+  ║ ============================== warnings summary ===============================
+  ║ ..\..\..\..\..\..\..\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\testclient.py:1
+  ║   C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  ║     from starlette.testclient import TestClient as TestClient  # noqa
+  ║
+  ║ -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+  ║ =========================== short test summary info ===========================
+  ║ FAILED tests/hermes_cli/test_dashboard_param_clamps.py::TestSessionPaginationClamps::test_in_range_limit_accepted
+  ║ FAILED tests/hermes_cli/test_dashboard_param_clamps.py::TestAnalyticsDaysClamps::test_in_range_days_accepted
+  ║ =================== 2 failed, 7 passed, 1 warning in 4.44s ====================
+  ║
+  ║  Repro: python -m pytest tests\hermes_cli\test_dashboard_param_clamps.py -v --tb=long
+  ╚╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍
+
+
+=== Summary: 1 files, 7 tests passed, 2 failed (100% complete) in 7.0s (1 workers) ===
+  Durations cached to test_durations.json (1 files)
+
+=== Per-file subprocess time distribution ===
+  Files:   1
+  Total subprocess CPU-wall: 7.0s  (runner wall: 7.0s, parallelism: 1x)
+  P50: 6.98s  P90: 6.98s  P95: 6.98s  P99: 6.98s  Max: 6.98s
+  <1s: 0 files (0%)  <2s: 0 files (0%)
+  Top 10 slowest:
+      6.98s  tests\hermes_cli\test_dashboard_param_clamps.py
+
+=== Failure output ===
+
+--- tests\hermes_cli\test_dashboard_param_clamps.py ---
+============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-9.0.2, pluggy-1.6.0 -- C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\r
+configfile: pyproject.toml
+plugins: anyio-4.12.1, asyncio-1.3.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 9 items
+
+tests/hermes_cli/test_dashboard_param_clamps.py::TestSessionPaginationClamps::test_oversized_limit_rejected PASSED [ 11%]
+tests/hermes_cli/test_dashboard_param_clamps.py::TestSessionPaginationClamps::test_negative_limit_rejected PASSED [ 22%]
+tests/hermes_cli/test_dashboard_param_clamps.py::TestSessionPaginationClamps::test_profile_fanout_limit_clamped PASSED [ 33%]
+tests/hermes_cli/test_dashboard_param_clamps.py::TestSessionPaginationClamps::test_profile_fanout_accepts_real_desktop_maximum PASSED [ 44%]
+tests/hermes_cli/test_dashboard_param_clamps.py::TestSessionPaginationClamps::test_in_range_limit_accepted FAILED [ 55%]
+tests/hermes_cli/test_dashboard_param_clamps.py::TestAnalyticsDaysClamps::test_out_of_range_days_rejected[0] PASSED [ 66%]
+tests/hermes_cli/test_dashboard_param_clamps.py::TestAnalyticsDaysClamps::test_out_of_range_days_rejected[-5] PASSED [ 77%]
+tests/hermes_cli/test_dashboard_param_clamps.py::TestAnalyticsDaysClamps::test_out_of_range_days_rejected[100000] PASSED [ 88%]
+tests/hermes_cli/test_dashboard_param_clamps.py::TestAnalyticsDaysClamps::test_in_range_days_accepted FAILED [100%]
+
+================================== FAILURES ===================================
+__________ TestSessionPaginationClamps.test_in_range_limit_accepted ___________
+
+self = <tests.hermes_cli.test_dashboard_param_clamps.TestSessionPaginationClamps object at 0x000001DD168B9B10>
+client = <starlette.testclient.TestClient object at 0x000001DD18F38750>
+
+    def test_in_range_limit_accepted(self, client):
+        r = client.get("/api/sessions", params={"limit": 50})
+>       assert r.status_code == 200
+E       assert 500 == 200
+E        +  where 500 = <Response [500 Internal Server Error]>.status_code
+
+tests\hermes_cli\test_dashboard_param_clamps.py:51: AssertionError
+------------------------------ Captured log call ------------------------------
+ERROR    hermes_cli.web_server:sessions.py:217 GET /api/sessions failed
+Traceback (most recent call last):
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\r\hermes_cli\web_routers\sessions.py", line 139, in get_sessions
+    db = _open_session_db_for_profile(profile, read_only=True)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\r\hermes_cli\web_deps.py", line 47, in _proxy
+    return getattr(_server(), name)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\r\hermes_cli\web_server.py", line 12703, in _open_session_db_for_profile
+    return _open_session_db_at_path(db_path, read_only=read_only)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\r\hermes_cli\web_server.py", line 12635, in _open_session_db_at_path
+    SessionDB(db_path=db_path, read_only=False).close()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\r\hermes_state.py", line 5687, in __init__
+    _open_with_optional_startup_guard()
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\r\hermes_state.py", line 5684, in _open_with_optional_startup_guard
+    _connect_and_init_with_lock_patience()
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\r\hermes_state.py", line 5648, in _connect_and_init_with_lock_patience
+    _connect_and_init()
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\r\hermes_state.py", line 5632, in _connect_and_init
+    self._init_schema()
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\r\hermes_state_schema.py", line 1705, in _init_schema
+    self._ensure_usage_detail_activation(
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\r\hermes_state_schema.py", line 1385, in _ensure_usage_detail_activation
+    raise RuntimeError(
+RuntimeError: incomplete trusted session usage cutover baseline
+_____________ TestAnalyticsDaysClamps.test_in_range_days_accepted _____________
+
+self = <tests.hermes_cli.test_dashboard_param_clamps.TestAnalyticsDaysClamps object at 0x000001DD168CC510>
+client = <starlette.testclient.TestClient object at 0x000001DD17909DD0>
+
+    def test_in_range_days_accepted(self, client):
+        r = client.get("/api/analytics/usage", params={"days": 30})
+>       assert r.status_code == 200
+E       assert 500 == 200
+E        +  where 500 = <Response [500 Internal Server Error]>.status_code
+
+tests\hermes_cli\test_dashboard_param_clamps.py:62: AssertionError
+============================== warnings summary ===============================
+..\..\..\..\..\..\..\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\testclient.py:1
+  C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/hermes_cli/test_dashboard_param_clamps.py::TestSessionPaginationClamps::test_in_range_limit_accepted
+FAILED tests/hermes_cli/test_dashboard_param_clamps.py::TestAnalyticsDaysClamps::test_in_range_days_accepted
+=================== 2 failed, 7 passed, 1 warning in 4.44s ====================
+
+=== 1 file with test failures (2 tests failed) ===
+  tests\hermes_cli\test_dashboard_param_clamps.py  (2 tests failed)

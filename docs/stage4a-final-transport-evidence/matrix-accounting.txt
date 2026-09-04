@@ -1,0 +1,28 @@
+▶ no local venv — using Nix dev venv via HERMES_PYTHON: C:/Users/khairul/Projects/hermes-agent-forge-runtime/.venv/Scripts/python.exe
+▶ running per-file parallel test suite via run_tests_parallel.py
+  (TZ=UTC LANG=C.UTF-8 PYTHONHASHSEED=0; clean env)
+▶ pre-compiling bytecode cache
+▶ launching test runner
+Discovered 6 test files (~57 tests) under ['tests\\agent\\test_async_token_accounting.py', 'tests\\agent\\test_background_review_usage.py', 'tests\\hermes_state\\test_aux_usage_accounting.py', 'tests\\run_agent\\test_token_persistence_non_cli.py', 'tests\\state\\test_session_model_usage_pk_heal.py', 'tests\\state\\test_session_usage_detail.py']; running with -j 4
+[ 17.5% |    10/~57 | ✓10 | ✗ 0] ✓ tests\agent\test_background_review_usage.py (10✓, 6.3s)
+[ 22.8% |    13/~57 | ✓13 | ✗ 0] ✓ tests\run_agent\test_token_persistence_non_cli.py (3✓, 8.1s)
+[ 40.4% |    23/~57 | ✓23 | ✗ 0] ✓ tests\hermes_state\test_aux_usage_accounting.py (10✓, 11.9s)
+[ 47.4% |    27/~57 | ✓27 | ✗ 0] ✓ tests\state\test_session_model_usage_pk_heal.py (4✓, 6.2s)
+[ 73.7% |    42/~57 | ✓42 | ✗ 0] ✓ tests\agent\test_async_token_accounting.py (15✓, 18.0s)
+[100.0% |    57/~57 | ✓59 | ✗ 0] ✓ tests\state\test_session_usage_detail.py (17✓, 12.7s)
+
+=== Summary: 6 files, 59 tests passed, 0 failed (100% complete) in 20.8s (4 workers) ===
+  Durations cached to test_durations.json (6 files)
+
+=== Per-file subprocess time distribution ===
+  Files:   6
+  Total subprocess CPU-wall: 63.2s  (runner wall: 20.8s, parallelism: 4x)
+  P50: 11.88s  P90: 17.98s  P95: 17.98s  P99: 17.98s  Max: 17.98s
+  <1s: 0 files (0%)  <2s: 0 files (0%)
+  Top 10 slowest:
+     17.98s  tests\agent\test_async_token_accounting.py
+     12.70s  tests\state\test_session_usage_detail.py
+     11.88s  tests\hermes_state\test_aux_usage_accounting.py
+      8.12s  tests\run_agent\test_token_persistence_non_cli.py
+      6.31s  tests\agent\test_background_review_usage.py
+      6.20s  tests\state\test_session_model_usage_pk_heal.py

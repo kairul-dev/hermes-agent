@@ -1,0 +1,24 @@
+▶ no local venv — using Nix dev venv via HERMES_PYTHON: C:/Users/khairul/Projects/hermes-agent-forge-runtime/.venv/Scripts/python.exe
+▶ running per-file parallel test suite via run_tests_parallel.py
+  (TZ=UTC LANG=C.UTF-8 PYTHONHASHSEED=0; clean env)
+▶ pre-compiling bytecode cache
+▶ launching test runner
+Discovered 4 test files (~63 tests) under ['tests\\state\\test_stage4a_s4a06_cutover.py', 'tests\\state\\test_stage4a_remediation.py', 'tests\\state\\test_session_usage_detail.py', 'tests\\hermes_cli\\test_session_usage_api.py']; running with -j 4
+[ 17.5% |    11/~63 | ✓13 | ✗ 0] ✓ tests\hermes_cli\test_session_usage_api.py (13✓, 18.5s)
+[ 41.3% |    26/~63 | ✓30 | ✗ 0] ✓ tests\state\test_session_usage_detail.py (17✓, 20.2s)
+[ 66.7% |    42/~63 | ✓57 | ✗ 0] ✓ tests\state\test_stage4a_remediation.py (27✓, 28.8s)
+[100.0% |    63/~63 | ✓108 | ✗  0] ✓ tests\state\test_stage4a_s4a06_cutover.py (51✓, 39.1s)
+
+=== Summary: 4 files, 108 tests passed, 0 failed (100% complete) in 39.1s (4 workers) ===
+  Durations cached to test_durations.json (4 files)
+
+=== Per-file subprocess time distribution ===
+  Files:   4
+  Total subprocess CPU-wall: 106.7s  (runner wall: 39.1s, parallelism: 4x)
+  P50: 28.80s  P90: 39.14s  P95: 39.14s  P99: 39.14s  Max: 39.14s
+  <1s: 0 files (0%)  <2s: 0 files (0%)
+  Top 10 slowest:
+     39.14s  tests\state\test_stage4a_s4a06_cutover.py
+     28.80s  tests\state\test_stage4a_remediation.py
+     20.25s  tests\state\test_session_usage_detail.py
+     18.47s  tests\hermes_cli\test_session_usage_api.py

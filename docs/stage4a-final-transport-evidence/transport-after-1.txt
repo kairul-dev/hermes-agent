@@ -1,0 +1,20 @@
+▶ no local venv — using Nix dev venv via HERMES_PYTHON: C:/Users/khairul/Projects/hermes-agent-forge-runtime/.venv/Scripts/python.exe
+▶ running per-file parallel test suite via run_tests_parallel.py
+  (TZ=UTC LANG=C.UTF-8 PYTHONHASHSEED=0; clean env)
+▶ pre-compiling bytecode cache
+▶ launching test runner
+Discovered 2 test files (~14 tests) under ['tests\\hermes_cli\\test_stage4a_transport.py', 'tests\\hermes_cli\\test_session_usage_api.py']; running with -j 1
+[ 78.6% |    11/~14 | ✓13 | ✗ 0] ✓ tests\hermes_cli\test_session_usage_api.py (13✓, 10.5s)
+[100.0% |    14/~14 | ✓42 | ✗ 0] ✓ tests\hermes_cli\test_stage4a_transport.py (29✓, 18.7s)
+
+=== Summary: 2 files, 42 tests passed, 0 failed (100% complete) in 29.2s (1 workers) ===
+  Durations cached to test_durations.json (2 files)
+
+=== Per-file subprocess time distribution ===
+  Files:   2
+  Total subprocess CPU-wall: 29.2s  (runner wall: 29.2s, parallelism: 1x)
+  P50: 18.66s  P90: 18.66s  P95: 18.66s  P99: 18.66s  Max: 18.66s
+  <1s: 0 files (0%)  <2s: 0 files (0%)
+  Top 10 slowest:
+     18.66s  tests\hermes_cli\test_stage4a_transport.py
+     10.53s  tests\hermes_cli\test_session_usage_api.py

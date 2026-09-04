@@ -1,0 +1,3691 @@
+▶ no local venv — using Nix dev venv via HERMES_PYTHON: C:/Users/khairul/Projects/hermes-agent-forge-runtime/.venv/Scripts/python.exe
+▶ running per-file parallel test suite via run_tests_parallel.py
+  (TZ=UTC LANG=C.UTF-8 PYTHONHASHSEED=0; clean env)
+▶ pre-compiling bytecode cache
+▶ launching test runner
+Discovered 1 test files (~7 tests) under ['tests\\hermes_cli\\test_stage4a_bootstrap_diagnostic.py']; running with -j 1
+[100.0% |     7/~7 | ✓8 | ✗1] ✗ tests\hermes_cli\test_stage4a_bootstrap_diagnostic.py (8✓ 1✗, 9.2s)
+
+  ╔╍ Failed: tests\hermes_cli\test_stage4a_bootstrap_diagnostic.py ╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍
+  ║                     ).fetchall()
+  ║                     baseline_digest = (
+  ║                         session_usage_reconciliation_baseline_digest(
+  ║                             baseline_rows
+  ║                         )
+  ║                     )
+  ║                 except ValueError as exc:
+  ║                     raise RuntimeError(
+  ║                         "invalid trusted session usage cutover state"
+  ║                     ) from exc
+  ║                 if (
+  ║                     not baseline_table_preexisting
+  ║                     or len(baseline_rows) != marker["baseline_row_count"]
+  ║                     or baseline_digest != marker["baseline_sha256"]
+  ║                 ):
+  ║ >                   raise RuntimeError(
+  ║                         "incomplete trusted session usage cutover baseline"
+  ║                     )
+  ║ E                   RuntimeError: incomplete trusted session usage cutover baseline
+  ║
+  ║ hermes_state_schema.py:1385: RuntimeError
+  ║ ============================== warnings summary ===============================
+  ║ ..\..\..\..\..\..\..\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\testclient.py:1
+  ║   C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  ║     from starlette.testclient import TestClient as TestClient  # noqa
+  ║
+  ║ -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+  ║ =========================== short test summary info ===========================
+  ║ FAILED tests/hermes_cli/test_stage4a_bootstrap_diagnostic.py::TestAnalyticsDaysClamps::test_in_range_days_accepted
+  ║ =================== 1 failed, 8 passed, 1 warning in 6.41s ====================
+  ║
+  ║  Repro: python -m pytest tests\hermes_cli\test_stage4a_bootstrap_diagnostic.py -v --tb=long
+  ╚╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍
+
+
+=== Summary: 1 files, 8 tests passed, 1 failed (100% complete) in 9.2s (1 workers) ===
+  Durations cached to test_durations.json (1 files)
+
+=== Per-file subprocess time distribution ===
+  Files:   1
+  Total subprocess CPU-wall: 9.2s  (runner wall: 9.2s, parallelism: 1x)
+  P50: 9.17s  P90: 9.17s  P95: 9.17s  P99: 9.17s  Max: 9.17s
+  <1s: 0 files (0%)  <2s: 0 files (0%)
+  Top 10 slowest:
+      9.17s  tests\hermes_cli\test_stage4a_bootstrap_diagnostic.py
+
+=== Failure output ===
+
+--- tests\hermes_cli\test_stage4a_bootstrap_diagnostic.py ---
+============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-9.0.2, pluggy-1.6.0 -- C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h
+configfile: pyproject.toml
+plugins: anyio-4.12.1, asyncio-1.3.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 9 items
+
+tests/hermes_cli/test_stage4a_bootstrap_diagnostic.py::TestSessionPaginationClamps::test_oversized_limit_rejected PASSED [ 11%]
+tests/hermes_cli/test_stage4a_bootstrap_diagnostic.py::TestSessionPaginationClamps::test_negative_limit_rejected PASSED [ 22%]
+tests/hermes_cli/test_stage4a_bootstrap_diagnostic.py::TestSessionPaginationClamps::test_profile_fanout_limit_clamped PASSED [ 33%]
+tests/hermes_cli/test_stage4a_bootstrap_diagnostic.py::TestSessionPaginationClamps::test_profile_fanout_accepts_real_desktop_maximum PASSED [ 44%]
+tests/hermes_cli/test_stage4a_bootstrap_diagnostic.py::TestSessionPaginationClamps::test_in_range_limit_accepted PASSED [ 55%]
+tests/hermes_cli/test_stage4a_bootstrap_diagnostic.py::TestAnalyticsDaysClamps::test_out_of_range_days_rejected[0] PASSED [ 66%]
+tests/hermes_cli/test_stage4a_bootstrap_diagnostic.py::TestAnalyticsDaysClamps::test_out_of_range_days_rejected[-5] PASSED [ 77%]
+tests/hermes_cli/test_stage4a_bootstrap_diagnostic.py::TestAnalyticsDaysClamps::test_out_of_range_days_rejected[100000] PASSED [ 88%]
+tests/hermes_cli/test_stage4a_bootstrap_diagnostic.py::TestAnalyticsDaysClamps::test_in_range_days_accepted FAILED [100%]
+
+================================== FAILURES ===================================
+_____________ TestAnalyticsDaysClamps.test_in_range_days_accepted _____________
+  + Exception Group Traceback (most recent call last):
+  |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\_utils.py", line 85, in create_collapsing_task_group
+  |     async with anyio.create_task_group() as tg:
+  |   File "C:\Users\khairul\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 783, in __aexit__
+  |     raise BaseExceptionGroup(
+  | ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\_pytest\runner.py", line 353, in from_call
+    |     result: TResult | None = func()
+    |                              ^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\_pytest\runner.py", line 245, in <lambda>
+    |     lambda: runtest_hook(item=item, **kwds),
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    |     return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    |     return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\pluggy\_callers.py", line 167, in _multicall
+    |     raise exception
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\pluggy\_callers.py", line 139, in _multicall
+    |     teardown.throw(exception)
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\_pytest\logging.py", line 850, in pytest_runtest_call
+    |     yield
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\pluggy\_callers.py", line 139, in _multicall
+    |     teardown.throw(exception)
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\_pytest\capture.py", line 900, in pytest_runtest_call
+    |     return (yield)
+    |             ^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\pluggy\_callers.py", line 139, in _multicall
+    |     teardown.throw(exception)
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\_pytest\skipping.py", line 268, in pytest_runtest_call
+    |     return (yield)
+    |             ^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    |     res = hook_impl.function(*args)
+    |           ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\_pytest\runner.py", line 179, in pytest_runtest_call
+    |     item.runtest()
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\_pytest\python.py", line 1720, in runtest
+    |     self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    |     return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    |     return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\pluggy\_callers.py", line 167, in _multicall
+    |     raise exception
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\pluggy\_callers.py", line 139, in _multicall
+    |     teardown.throw(exception)
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\pluggy\_callers.py", line 53, in run_old_style_hookwrapper
+    |     return result.get_result()
+    |            ^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\pluggy\_result.py", line 103, in get_result
+    |     raise exc.with_traceback(tb)
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\pluggy\_callers.py", line 38, in run_old_style_hookwrapper
+    |     res = yield
+    |           ^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    |     res = hook_impl.function(*args)
+    |           ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\_pytest\python.py", line 166, in pytest_pyfunc_call
+    |     result = testfunction(**testargs)
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\tests\hermes_cli\test_stage4a_bootstrap_diagnostic.py", line 61, in test_in_range_days_accepted
+    |     r = client.get("/api/analytics/usage", params={"days": 30})
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\testclient.py", line 482, in get
+    |     return super().get(
+    |            ^^^^^^^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\httpx\_client.py", line 1053, in get
+    |     return self.request(
+    |            ^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\testclient.py", line 454, in request
+    |     return super().request(
+    |            ^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\httpx\_client.py", line 825, in request
+    |     return self.send(request, auth=auth, follow_redirects=follow_redirects)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\httpx\_client.py", line 914, in send
+    |     response = self._send_handling_auth(
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\httpx\_client.py", line 942, in _send_handling_auth
+    |     response = self._send_handling_redirects(
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\httpx\_client.py", line 979, in _send_handling_redirects
+    |     response = self._send_single_request(request)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\httpx\_client.py", line 1014, in _send_single_request
+    |     response = transport.handle_request(request)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\testclient.py", line 356, in handle_request
+    |     raise exc
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\testclient.py", line 353, in handle_request
+    |     portal.call(self.app, scope, receive, send)
+    |   File "C:\Users\khairul\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\anyio\from_thread.py", line 334, in call
+    |     return cast(T_Retval, self.start_task_soon(func, *args).result())
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\AppData\Local\hermes\runtimes\python-3.11.9-signed\Lib\concurrent\futures\_base.py", line 456, in result
+    |     return self.__get_result()
+    |            ^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\AppData\Local\hermes\runtimes\python-3.11.9-signed\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    |     raise self._exception
+    |   File "C:\Users\khairul\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\anyio\from_thread.py", line 259, in _call_func
+    |     retval = await retval_or_awaitable
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\applications.py", line 1160, in __call__
+    |     await super().__call__(scope, receive, send)
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\applications.py", line 90, in __call__
+    |     await self.middleware_stack(scope, receive, send)
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\errors.py", line 186, in __call__
+    |     raise exc
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    |     await self.app(scope, receive, _send)
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    |     response = await self.dispatch_func(request, call_next)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 1224, in _dashboard_health_middleware
+    |     response = await call_next(request)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    |     raise app_exc from app_exc.__cause__ or app_exc.__context__
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    |     await self.app(scope, receive_or_disconnect, send_no_error)
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    |     response = await self.dispatch_func(request, call_next)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 1148, in _token_auth_seam
+    |     return await token_auth_middleware(request, call_next)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\dashboard_auth\token_auth.py", line 164, in token_auth_middleware
+    |     return await call_next(request)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    |     raise app_exc from app_exc.__cause__ or app_exc.__context__
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    |     await self.app(scope, receive_or_disconnect, send_no_error)
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    |     response = await self.dispatch_func(request, call_next)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 1134, in auth_middleware
+    |     return await call_next(request)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    |     raise app_exc from app_exc.__cause__ or app_exc.__context__
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    |     await self.app(scope, receive_or_disconnect, send_no_error)
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    |     response = await self.dispatch_func(request, call_next)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 1110, in _dashboard_auth_gate
+    |     return await gated_auth_middleware(request, call_next)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\dashboard_auth\middleware.py", line 333, in gated_auth_middleware
+    |     return await call_next(request)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    |     raise app_exc from app_exc.__cause__ or app_exc.__context__
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    |     await self.app(scope, receive_or_disconnect, send_no_error)
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    |     response = await self.dispatch_func(request, call_next)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 1095, in _plugin_api_runtime_gate
+    |     return await call_next(request)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    |     raise app_exc from app_exc.__cause__ or app_exc.__context__
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    |     await self.app(scope, receive_or_disconnect, send_no_error)
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    |     response = await self.dispatch_func(request, call_next)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 1028, in host_header_middleware
+    |     return await call_next(request)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    |     raise app_exc from app_exc.__cause__ or app_exc.__context__
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    |     await self.app(scope, receive_or_disconnect, send_no_error)
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\cors.py", line 88, in __call__
+    |     await self.app(scope, receive, send)
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    |     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    |     await self.app(scope, receive, send)
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    |     await self.middleware_stack(scope, receive, send)
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\routing.py", line 680, in app
+    |     await route.handle(scope, receive, send)
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\routing.py", line 276, in handle
+    |     await self.app(scope, receive, send)
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\routing.py", line 119, in app
+    |     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\routing.py", line 105, in app
+    |     response = await f(request)
+    |                ^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\routing.py", line 431, in app
+    |     raw_response = await run_endpoint_function(
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\routing.py", line 313, in run_endpoint_function
+    |     return await dependant.call(**values)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 16117, in get_usage_analytics
+    |     return await asyncio.to_thread(_get_usage_analytics, days, profile)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\AppData\Local\hermes\runtimes\python-3.11.9-signed\Lib\asyncio\threads.py", line 25, in to_thread
+    |     return await loop.run_in_executor(None, func_call)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\AppData\Local\hermes\runtimes\python-3.11.9-signed\Lib\concurrent\futures\thread.py", line 58, in run
+    |     result = self.fn(*self.args, **self.kwargs)
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 16039, in _get_usage_analytics
+    |     db = _open_session_db_for_profile(profile, read_only=True)
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 12703, in _open_session_db_for_profile
+    |     return _open_session_db_at_path(db_path, read_only=read_only)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 12635, in _open_session_db_at_path
+    |     SessionDB(db_path=db_path, read_only=False).close()
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state.py", line 5687, in __init__
+    |     _open_with_optional_startup_guard()
+    |   File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state.py", line 5684, in _open_with_optional_startup_guard
+    |     _connect_and_init_with_lock_patience()
+    |   File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state.py", line 5648, in _connect_and_init_with_lock_patience
+    |     _connect_and_init()
+    |   File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state.py", line 5632, in _connect_and_init
+    |     self._init_schema()
+    |   File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state_schema.py", line 1705, in _init_schema
+    |     self._ensure_usage_detail_activation(
+    |   File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state_schema.py", line 1385, in _ensure_usage_detail_activation
+    |     raise RuntimeError(
+    | RuntimeError: incomplete trusted session usage cutover baseline
+    +------------------------------------
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\tests\hermes_cli\test_stage4a_bootstrap_diagnostic.py", line 61, in test_in_range_days_accepted
+    r = client.get("/api/analytics/usage", params={"days": 30})
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\testclient.py", line 482, in get
+    return super().get(
+           ^^^^^^^^^^^^
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\httpx\_client.py", line 1053, in get
+    return self.request(
+           ^^^^^^^^^^^^^
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\testclient.py", line 454, in request
+    return super().request(
+           ^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\httpx\_client.py", line 825, in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\httpx\_client.py", line 914, in send
+    response = self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\httpx\_client.py", line 942, in _send_handling_auth
+    response = self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\httpx\_client.py", line 979, in _send_handling_redirects
+    response = self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\httpx\_client.py", line 1014, in _send_single_request
+    response = transport.handle_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\testclient.py", line 356, in handle_request
+    raise exc
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\testclient.py", line 353, in handle_request
+    portal.call(self.app, scope, receive, send)
+  File "C:\Users\khairul\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\anyio\from_thread.py", line 334, in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\AppData\Local\hermes\runtimes\python-3.11.9-signed\Lib\concurrent\futures\_base.py", line 456, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\AppData\Local\hermes\runtimes\python-3.11.9-signed\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "C:\Users\khairul\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\anyio\from_thread.py", line 259, in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\applications.py", line 1160, in __call__
+    await super().__call__(scope, receive, send)
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\applications.py", line 90, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\errors.py", line 186, in __call__
+    raise exc
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 1224, in _dashboard_health_middleware
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 1148, in _token_auth_seam
+    return await token_auth_middleware(request, call_next)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\dashboard_auth\token_auth.py", line 164, in token_auth_middleware
+    return await call_next(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 1134, in auth_middleware
+    return await call_next(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 1110, in _dashboard_auth_gate
+    return await gated_auth_middleware(request, call_next)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\dashboard_auth\middleware.py", line 333, in gated_auth_middleware
+    return await call_next(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 1095, in _plugin_api_runtime_gate
+    return await call_next(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 1028, in host_header_middleware
+    return await call_next(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\cors.py", line 88, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\routing.py", line 119, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\routing.py", line 105, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\routing.py", line 431, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\routing.py", line 313, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 16117, in get_usage_analytics
+    return await asyncio.to_thread(_get_usage_analytics, days, profile)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\AppData\Local\hermes\runtimes\python-3.11.9-signed\Lib\asyncio\threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\AppData\Local\hermes\runtimes\python-3.11.9-signed\Lib\concurrent\futures\thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 16039, in _get_usage_analytics
+    db = _open_session_db_for_profile(profile, read_only=True)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 12703, in _open_session_db_for_profile
+    return _open_session_db_at_path(db_path, read_only=read_only)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 12635, in _open_session_db_at_path
+    SessionDB(db_path=db_path, read_only=False).close()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state.py", line 5687, in __init__
+    _open_with_optional_startup_guard()
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state.py", line 5684, in _open_with_optional_startup_guard
+    _connect_and_init_with_lock_patience()
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state.py", line 5648, in _connect_and_init_with_lock_patience
+    _connect_and_init()
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state.py", line 5632, in _connect_and_init
+    self._init_schema()
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state_schema.py", line 1705, in _init_schema
+    self._ensure_usage_detail_activation(
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state_schema.py", line 1385, in _ensure_usage_detail_activation
+    raise RuntimeError(
+RuntimeError: incomplete trusted session usage cutover baseline
+
+The above exception was the direct cause of the following exception:
+
+self = <tests.hermes_cli.test_stage4a_bootstrap_diagnostic.TestAnalyticsDaysClamps object at 0x000001E3BBA5C810>
+client = <starlette.testclient.TestClient object at 0x000001E3BF87B110>
+
+    def test_in_range_days_accepted(self, client):
+>       r = client.get("/api/analytics/usage", params={"days": 30})
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\hermes_cli\test_stage4a_bootstrap_diagnostic.py:61:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <starlette.testclient.TestClient object at 0x000001E3BF87B110>
+url = '/api/analytics/usage'
+
+    def get(  # type: ignore[override]
+        self,
+        url: httpx._types.URLTypes,
+        *,
+        params: httpx._types.QueryParamTypes | None = None,
+        headers: httpx._types.HeaderTypes | None = None,
+        cookies: httpx._types.CookieTypes | None = None,
+        auth: httpx._types.AuthTypes | httpx._client.UseClientDefault = httpx._client.USE_CLIENT_DEFAULT,
+        follow_redirects: bool | httpx._client.UseClientDefault = httpx._client.USE_CLIENT_DEFAULT,
+        timeout: httpx._types.TimeoutTypes | httpx._client.UseClientDefault = httpx._client.USE_CLIENT_DEFAULT,
+        extensions: dict[str, Any] | None = None,
+    ) -> httpx.Response:
+>       return super().get(
+            url,
+            params=params,
+            headers=headers,
+            cookies=cookies,
+            auth=auth,
+            follow_redirects=follow_redirects,
+            timeout=timeout,
+            extensions=extensions,
+        )
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\testclient.py:482:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <starlette.testclient.TestClient object at 0x000001E3BF87B110>
+url = '/api/analytics/usage'
+
+    def get(
+        self,
+        url: URL | str,
+        *,
+        params: QueryParamTypes | None = None,
+        headers: HeaderTypes | None = None,
+        cookies: CookieTypes | None = None,
+        auth: AuthTypes | UseClientDefault | None = USE_CLIENT_DEFAULT,
+        follow_redirects: bool | UseClientDefault = USE_CLIENT_DEFAULT,
+        timeout: TimeoutTypes | UseClientDefault = USE_CLIENT_DEFAULT,
+        extensions: RequestExtensions | None = None,
+    ) -> Response:
+        """
+        Send a `GET` request.
+
+        **Parameters**: See `httpx.request`.
+        """
+>       return self.request(
+            "GET",
+            url,
+            params=params,
+            headers=headers,
+            cookies=cookies,
+            auth=auth,
+            follow_redirects=follow_redirects,
+            timeout=timeout,
+            extensions=extensions,
+        )
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\httpx\_client.py:1053:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <starlette.testclient.TestClient object at 0x000001E3BF87B110>
+method = 'GET', url = URL('http://testserver/api/analytics/usage')
+
+    def request(  # type: ignore[override]
+        self,
+        method: str,
+        url: httpx._types.URLTypes,
+        *,
+        content: httpx._types.RequestContent | None = None,
+        data: _RequestData | None = None,
+        files: httpx._types.RequestFiles | None = None,
+        json: Any = None,
+        params: httpx._types.QueryParamTypes | None = None,
+        headers: httpx._types.HeaderTypes | None = None,
+        cookies: httpx._types.CookieTypes | None = None,
+        auth: httpx._types.AuthTypes | httpx._client.UseClientDefault = httpx._client.USE_CLIENT_DEFAULT,
+        follow_redirects: bool | httpx._client.UseClientDefault = httpx._client.USE_CLIENT_DEFAULT,
+        timeout: httpx._types.TimeoutTypes | httpx._client.UseClientDefault = httpx._client.USE_CLIENT_DEFAULT,
+        extensions: dict[str, Any] | None = None,
+    ) -> httpx.Response:
+        if timeout is not httpx.USE_CLIENT_DEFAULT:
+            warnings.warn(
+                "You should not use the 'timeout' argument with the TestClient. "
+                "See https://github.com/Kludex/starlette/issues/1108 for more information.",
+                StarletteDeprecationWarning,
+                stacklevel=2,
+            )
+        url = self._merge_url(url)
+>       return super().request(
+            method,
+            url,
+            content=content,
+            data=data,
+            files=files,
+            json=json,
+            params=params,
+            headers=headers,
+            cookies=cookies,
+            auth=auth,
+            follow_redirects=follow_redirects,
+            timeout=timeout,
+            extensions=extensions,
+        )
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\testclient.py:454:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <starlette.testclient.TestClient object at 0x000001E3BF87B110>
+method = 'GET', url = URL('http://testserver/api/analytics/usage')
+
+    def request(
+        self,
+        method: str,
+        url: URL | str,
+        *,
+        content: RequestContent | None = None,
+        data: RequestData | None = None,
+        files: RequestFiles | None = None,
+        json: typing.Any | None = None,
+        params: QueryParamTypes | None = None,
+        headers: HeaderTypes | None = None,
+        cookies: CookieTypes | None = None,
+        auth: AuthTypes | UseClientDefault | None = USE_CLIENT_DEFAULT,
+        follow_redirects: bool | UseClientDefault = USE_CLIENT_DEFAULT,
+        timeout: TimeoutTypes | UseClientDefault = USE_CLIENT_DEFAULT,
+        extensions: RequestExtensions | None = None,
+    ) -> Response:
+        """
+        Build and send a request.
+
+        Equivalent to:
+
+        ```python
+        request = client.build_request(...)
+        response = client.send(request, ...)
+        ```
+
+        See `Client.build_request()`, `Client.send()` and
+        [Merging of configuration][0] for how the various parameters
+        are merged with client-level configuration.
+
+        [0]: /advanced/clients/#merging-of-configuration
+        """
+        if cookies is not None:
+            message = (
+                "Setting per-request cookies=<...> is being deprecated, because "
+                "the expected behaviour on cookie persistence is ambiguous. Set "
+                "cookies directly on the client instance instead."
+            )
+            warnings.warn(message, DeprecationWarning, stacklevel=2)
+
+        request = self.build_request(
+            method=method,
+            url=url,
+            content=content,
+            data=data,
+            files=files,
+            json=json,
+            params=params,
+            headers=headers,
+            cookies=cookies,
+            timeout=timeout,
+            extensions=extensions,
+        )
+>       return self.send(request, auth=auth, follow_redirects=follow_redirects)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\httpx\_client.py:825:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <starlette.testclient.TestClient object at 0x000001E3BF87B110>
+request = <Request('GET', 'http://testserver/api/analytics/usage?days=30')>
+
+    def send(
+        self,
+        request: Request,
+        *,
+        stream: bool = False,
+        auth: AuthTypes | UseClientDefault | None = USE_CLIENT_DEFAULT,
+        follow_redirects: bool | UseClientDefault = USE_CLIENT_DEFAULT,
+    ) -> Response:
+        """
+        Send a request.
+
+        The request is sent as-is, unmodified.
+
+        Typically you'll want to build one with `Client.build_request()`
+        so that any client-level configuration is merged into the request,
+        but passing an explicit `httpx.Request()` is supported as well.
+
+        See also: [Request instances][0]
+
+        [0]: /advanced/clients/#request-instances
+        """
+        if self._state == ClientState.CLOSED:
+            raise RuntimeError("Cannot send a request, as the client has been closed.")
+
+        self._state = ClientState.OPENED
+        follow_redirects = (
+            self.follow_redirects
+            if isinstance(follow_redirects, UseClientDefault)
+            else follow_redirects
+        )
+
+        self._set_timeout(request)
+
+        auth = self._build_request_auth(request, auth)
+
+>       response = self._send_handling_auth(
+            request,
+            auth=auth,
+            follow_redirects=follow_redirects,
+            history=[],
+        )
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\httpx\_client.py:914:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <starlette.testclient.TestClient object at 0x000001E3BF87B110>
+request = <Request('GET', 'http://testserver/api/analytics/usage?days=30')>
+auth = <httpx.Auth object at 0x000001E3BFB48950>, follow_redirects = True
+history = []
+
+    def _send_handling_auth(
+        self,
+        request: Request,
+        auth: Auth,
+        follow_redirects: bool,
+        history: list[Response],
+    ) -> Response:
+        auth_flow = auth.sync_auth_flow(request)
+        try:
+            request = next(auth_flow)
+
+            while True:
+>               response = self._send_handling_redirects(
+                    request,
+                    follow_redirects=follow_redirects,
+                    history=history,
+                )
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\httpx\_client.py:942:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <starlette.testclient.TestClient object at 0x000001E3BF87B110>
+request = <Request('GET', 'http://testserver/api/analytics/usage?days=30')>
+follow_redirects = True, history = []
+
+    def _send_handling_redirects(
+        self,
+        request: Request,
+        follow_redirects: bool,
+        history: list[Response],
+    ) -> Response:
+        while True:
+            if len(history) > self.max_redirects:
+                raise TooManyRedirects(
+                    "Exceeded maximum allowed redirects.", request=request
+                )
+
+            for hook in self._event_hooks["request"]:
+                hook(request)
+
+>           response = self._send_single_request(request)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\httpx\_client.py:979:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <starlette.testclient.TestClient object at 0x000001E3BF87B110>
+request = <Request('GET', 'http://testserver/api/analytics/usage?days=30')>
+
+    def _send_single_request(self, request: Request) -> Response:
+        """
+        Sends a single request, without handling any redirections.
+        """
+        transport = self._transport_for_url(request.url)
+        start = time.perf_counter()
+
+        if not isinstance(request.stream, SyncByteStream):
+            raise RuntimeError(
+                "Attempted to send an async request with a sync Client instance."
+            )
+
+        with request_context(request=request):
+>           response = transport.handle_request(request)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\httpx\_client.py:1014:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <starlette.testclient._TestClientTransport object at 0x000001E3BF87AF90>
+request = <Request('GET', 'http://testserver/api/analytics/usage?days=30')>
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        scheme = request.url.scheme
+        netloc = request.url.netloc.decode(encoding="ascii")
+        path = request.url.path
+        raw_path = request.url.raw_path
+        query = request.url.query.decode(encoding="ascii")
+
+        default_port = {"http": 80, "ws": 80, "https": 443, "wss": 443}[scheme]
+
+        if ":" in netloc:
+            host, port_string = netloc.split(":", 1)
+            port = int(port_string)
+        else:
+            host = netloc
+            port = default_port
+
+        # Include the 'host' header.
+        if "host" in request.headers:
+            headers: list[tuple[bytes, bytes]] = []
+        elif port == default_port:  # pragma: no cover
+            headers = [(b"host", host.encode())]
+        else:  # pragma: no cover
+            headers = [(b"host", (f"{host}:{port}").encode())]
+
+        # Include other request headers.
+        headers += [(key.lower().encode(), value.encode()) for key, value in request.headers.multi_items()]
+
+        scope: dict[str, Any]
+
+        if scheme in {"ws", "wss"}:
+            subprotocol = request.headers.get("sec-websocket-protocol", None)
+            if subprotocol is None:
+                subprotocols: Sequence[str] = []
+            else:
+                subprotocols = [value.strip() for value in subprotocol.split(",")]
+            scope = {
+                "type": "websocket",
+                "path": unquote(path),
+                "raw_path": raw_path.split(b"?", 1)[0],
+                "root_path": self.root_path,
+                "scheme": scheme,
+                "query_string": query.encode(),
+                "headers": headers,
+                "client": self.client,
+                "server": [host, port],
+                "subprotocols": subprotocols,
+                "state": self.app_state.copy(),
+                "extensions": {"websocket.http.response": {}},
+            }
+            session = WebSocketTestSession(self.app, scope, self.portal_factory)
+            raise _Upgrade(session)
+
+        scope = {
+            "type": "http",
+            "http_version": "1.1",
+            "method": request.method,
+            "path": unquote(path),
+            "raw_path": raw_path.split(b"?", 1)[0],
+            "root_path": self.root_path,
+            "scheme": scheme,
+            "query_string": query.encode(),
+            "headers": headers,
+            "client": self.client,
+            "server": [host, port],
+            "extensions": {"http.response.debug": {}},
+            "state": self.app_state.copy(),
+        }
+
+        request_complete = False
+        response_started = False
+        response_complete: anyio.Event
+        raw_kwargs: dict[str, Any] = {"stream": io.BytesIO()}
+        template = None
+        context = None
+
+        async def receive() -> Message:
+            nonlocal request_complete
+
+            if request_complete:
+                if not response_complete.is_set():
+                    await response_complete.wait()
+                return {"type": "http.disconnect"}
+
+            body = request.read()
+            if isinstance(body, str):
+                body_bytes: bytes = body.encode("utf-8")  # pragma: no cover
+            elif body is None:
+                body_bytes = b""  # pragma: no cover
+            elif isinstance(body, GeneratorType):
+                try:  # pragma: no cover
+                    chunk = body.send(None)
+                    if isinstance(chunk, str):
+                        chunk = chunk.encode("utf-8")
+                    return {"type": "http.request", "body": chunk, "more_body": True}
+                except StopIteration:  # pragma: no cover
+                    request_complete = True
+                    return {"type": "http.request", "body": b""}
+            else:
+                body_bytes = body
+
+            request_complete = True
+            return {"type": "http.request", "body": body_bytes}
+
+        async def send(message: Message) -> None:
+            nonlocal raw_kwargs, response_started, template, context
+
+            if message["type"] == "http.response.start":
+                assert not response_started, 'Received multiple "http.response.start" messages.'
+                raw_kwargs["status_code"] = message["status"]
+                raw_kwargs["headers"] = [(key.decode(), value.decode()) for key, value in message.get("headers", [])]
+                response_started = True
+            elif message["type"] == "http.response.body":
+                assert response_started, 'Received "http.response.body" without "http.response.start".'
+                assert not response_complete.is_set(), 'Received "http.response.body" after response completed.'
+                body = message.get("body", b"")
+                more_body = message.get("more_body", False)
+                if request.method != "HEAD":
+                    raw_kwargs["stream"].write(body)
+                if not more_body:
+                    raw_kwargs["stream"].seek(0)
+                    response_complete.set()
+            elif message["type"] == "http.response.debug":
+                template = message["info"]["template"]
+                context = message["info"]["context"]
+
+        try:
+            with self.portal_factory() as portal:
+                response_complete = portal.call(anyio.Event)
+                portal.call(self.app, scope, receive, send)
+        except BaseException as exc:
+            if self.raise_server_exceptions:
+>               raise exc
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\testclient.py:356:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <starlette.testclient._TestClientTransport object at 0x000001E3BF87AF90>
+request = <Request('GET', 'http://testserver/api/analytics/usage?days=30')>
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        scheme = request.url.scheme
+        netloc = request.url.netloc.decode(encoding="ascii")
+        path = request.url.path
+        raw_path = request.url.raw_path
+        query = request.url.query.decode(encoding="ascii")
+
+        default_port = {"http": 80, "ws": 80, "https": 443, "wss": 443}[scheme]
+
+        if ":" in netloc:
+            host, port_string = netloc.split(":", 1)
+            port = int(port_string)
+        else:
+            host = netloc
+            port = default_port
+
+        # Include the 'host' header.
+        if "host" in request.headers:
+            headers: list[tuple[bytes, bytes]] = []
+        elif port == default_port:  # pragma: no cover
+            headers = [(b"host", host.encode())]
+        else:  # pragma: no cover
+            headers = [(b"host", (f"{host}:{port}").encode())]
+
+        # Include other request headers.
+        headers += [(key.lower().encode(), value.encode()) for key, value in request.headers.multi_items()]
+
+        scope: dict[str, Any]
+
+        if scheme in {"ws", "wss"}:
+            subprotocol = request.headers.get("sec-websocket-protocol", None)
+            if subprotocol is None:
+                subprotocols: Sequence[str] = []
+            else:
+                subprotocols = [value.strip() for value in subprotocol.split(",")]
+            scope = {
+                "type": "websocket",
+                "path": unquote(path),
+                "raw_path": raw_path.split(b"?", 1)[0],
+                "root_path": self.root_path,
+                "scheme": scheme,
+                "query_string": query.encode(),
+                "headers": headers,
+                "client": self.client,
+                "server": [host, port],
+                "subprotocols": subprotocols,
+                "state": self.app_state.copy(),
+                "extensions": {"websocket.http.response": {}},
+            }
+            session = WebSocketTestSession(self.app, scope, self.portal_factory)
+            raise _Upgrade(session)
+
+        scope = {
+            "type": "http",
+            "http_version": "1.1",
+            "method": request.method,
+            "path": unquote(path),
+            "raw_path": raw_path.split(b"?", 1)[0],
+            "root_path": self.root_path,
+            "scheme": scheme,
+            "query_string": query.encode(),
+            "headers": headers,
+            "client": self.client,
+            "server": [host, port],
+            "extensions": {"http.response.debug": {}},
+            "state": self.app_state.copy(),
+        }
+
+        request_complete = False
+        response_started = False
+        response_complete: anyio.Event
+        raw_kwargs: dict[str, Any] = {"stream": io.BytesIO()}
+        template = None
+        context = None
+
+        async def receive() -> Message:
+            nonlocal request_complete
+
+            if request_complete:
+                if not response_complete.is_set():
+                    await response_complete.wait()
+                return {"type": "http.disconnect"}
+
+            body = request.read()
+            if isinstance(body, str):
+                body_bytes: bytes = body.encode("utf-8")  # pragma: no cover
+            elif body is None:
+                body_bytes = b""  # pragma: no cover
+            elif isinstance(body, GeneratorType):
+                try:  # pragma: no cover
+                    chunk = body.send(None)
+                    if isinstance(chunk, str):
+                        chunk = chunk.encode("utf-8")
+                    return {"type": "http.request", "body": chunk, "more_body": True}
+                except StopIteration:  # pragma: no cover
+                    request_complete = True
+                    return {"type": "http.request", "body": b""}
+            else:
+                body_bytes = body
+
+            request_complete = True
+            return {"type": "http.request", "body": body_bytes}
+
+        async def send(message: Message) -> None:
+            nonlocal raw_kwargs, response_started, template, context
+
+            if message["type"] == "http.response.start":
+                assert not response_started, 'Received multiple "http.response.start" messages.'
+                raw_kwargs["status_code"] = message["status"]
+                raw_kwargs["headers"] = [(key.decode(), value.decode()) for key, value in message.get("headers", [])]
+                response_started = True
+            elif message["type"] == "http.response.body":
+                assert response_started, 'Received "http.response.body" without "http.response.start".'
+                assert not response_complete.is_set(), 'Received "http.response.body" after response completed.'
+                body = message.get("body", b"")
+                more_body = message.get("more_body", False)
+                if request.method != "HEAD":
+                    raw_kwargs["stream"].write(body)
+                if not more_body:
+                    raw_kwargs["stream"].seek(0)
+                    response_complete.set()
+            elif message["type"] == "http.response.debug":
+                template = message["info"]["template"]
+                context = message["info"]["context"]
+
+        try:
+            with self.portal_factory() as portal:
+                response_complete = portal.call(anyio.Event)
+>               portal.call(self.app, scope, receive, send)
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\testclient.py:353:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <anyio.from_thread.BlockingPortal object at 0x000001E3BFB48110>
+func = <fastapi.applications.FastAPI object at 0x000001E3BD53E510>
+args = ({'app': <fastapi.applications.FastAPI object at 0x000001E3BD53E510>, 'client': ('testclient', 50000), 'endpoint': <fu...ls>.receive at 0x000001E3BE073A60>, <function _TestClientTransport.handle_request.<locals>.send at 0x000001E3BF864A40>)
+
+    def call(
+        self,
+        func: Callable[[Unpack[PosArgsT]], Awaitable[T_Retval] | T_Retval],
+        *args: Unpack[PosArgsT],
+    ) -> T_Retval:
+        """
+        Call the given function in the event loop thread.
+
+        If the callable returns a coroutine object, it is awaited on.
+
+        :param func: any callable
+        :raises RuntimeError: if the portal is not running or if this method is called
+            from within the event loop thread
+
+        """
+>       return cast(T_Retval, self.start_task_soon(func, *args).result())
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\Users\khairul\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\anyio\from_thread.py:334:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = None, timeout = None
+
+    def result(self, timeout=None):
+        """Return the result of the call that the future represents.
+
+        Args:
+            timeout: The number of seconds to wait for the result if the future
+                isn't done. If None, then there is no limit on the wait time.
+
+        Returns:
+            The result of the call that the future represents.
+
+        Raises:
+            CancelledError: If the future was cancelled.
+            TimeoutError: If the future didn't finish executing before the given
+                timeout.
+            Exception: If the call raised then that exception will be raised.
+        """
+        try:
+            with self._condition:
+                if self._state in [CANCELLED, CANCELLED_AND_NOTIFIED]:
+                    raise CancelledError()
+                elif self._state == FINISHED:
+                    return self.__get_result()
+
+                self._condition.wait(timeout)
+
+                if self._state in [CANCELLED, CANCELLED_AND_NOTIFIED]:
+                    raise CancelledError()
+                elif self._state == FINISHED:
+>                   return self.__get_result()
+                           ^^^^^^^^^^^^^^^^^^^
+
+C:\Users\khairul\AppData\Local\hermes\runtimes\python-3.11.9-signed\Lib\concurrent\futures\_base.py:456:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = None
+
+    def __get_result(self):
+        if self._exception:
+            try:
+>               raise self._exception
+
+C:\Users\khairul\AppData\Local\hermes\runtimes\python-3.11.9-signed\Lib\concurrent\futures\_base.py:401:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <anyio.from_thread.BlockingPortal object at 0x000001E3BFB48110>
+func = <fastapi.applications.FastAPI object at 0x000001E3BD53E510>
+args = ({'app': <fastapi.applications.FastAPI object at 0x000001E3BD53E510>, 'client': ('testclient', 50000), 'endpoint': <fu...ls>.receive at 0x000001E3BE073A60>, <function _TestClientTransport.handle_request.<locals>.send at 0x000001E3BF864A40>)
+kwargs = {}
+future = <Future at 0x1e3bf87a6d0 state=finished raised RuntimeError>
+
+    async def _call_func(
+        self,
+        func: Callable[[Unpack[PosArgsT]], Awaitable[T_Retval] | T_Retval],
+        args: tuple[Unpack[PosArgsT]],
+        kwargs: dict[str, Any],
+        future: Future[T_Retval],
+    ) -> None:
+        def callback(f: Future[T_Retval]) -> None:
+            if f.cancelled():
+                if self._event_loop_thread_id == get_ident():
+                    scope.cancel("the future was cancelled")
+                elif self._event_loop_thread_id is not None:
+                    self.call(scope.cancel, "the future was cancelled")
+
+        try:
+            retval_or_awaitable = func(*args, **kwargs)
+            if isawaitable(retval_or_awaitable):
+                with CancelScope() as scope:
+                    future.add_done_callback(callback)
+>                   retval = await retval_or_awaitable
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\Users\khairul\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\anyio\from_thread.py:259:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <fastapi.applications.FastAPI object at 0x000001E3BD53E510>
+scope = {'app': <fastapi.applications.FastAPI object at 0x000001E3BD53E510>, 'client': ('testclient', 50000), 'endpoint': <function get_usage_analytics at 0x000001E3BDC9F740>, 'extensions': {'http.response.debug': {}}, ...}
+receive = <function _TestClientTransport.handle_request.<locals>.receive at 0x000001E3BE073A60>
+send = <function _TestClientTransport.handle_request.<locals>.send at 0x000001E3BF864A40>
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if self.root_path:
+            scope["root_path"] = self.root_path
+>       await super().__call__(scope, receive, send)
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\applications.py:1160:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <fastapi.applications.FastAPI object at 0x000001E3BD53E510>
+scope = {'app': <fastapi.applications.FastAPI object at 0x000001E3BD53E510>, 'client': ('testclient', 50000), 'endpoint': <function get_usage_analytics at 0x000001E3BDC9F740>, 'extensions': {'http.response.debug': {}}, ...}
+receive = <function _TestClientTransport.handle_request.<locals>.receive at 0x000001E3BE073A60>
+send = <function _TestClientTransport.handle_request.<locals>.send at 0x000001E3BF864A40>
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        scope["app"] = self
+        if self.middleware_stack is None:
+            self.middleware_stack = self.build_middleware_stack()
+>       await self.middleware_stack(scope, receive, send)
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\applications.py:90:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <starlette.middleware.errors.ServerErrorMiddleware object at 0x000001E3BE0AC990>
+scope = {'app': <fastapi.applications.FastAPI object at 0x000001E3BD53E510>, 'client': ('testclient', 50000), 'endpoint': <function get_usage_analytics at 0x000001E3BDC9F740>, 'extensions': {'http.response.debug': {}}, ...}
+receive = <function _TestClientTransport.handle_request.<locals>.receive at 0x000001E3BE073A60>
+send = <function _TestClientTransport.handle_request.<locals>.send at 0x000001E3BF864A40>
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        response_started = False
+
+        async def _send(message: Message) -> None:
+            nonlocal response_started, send
+
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, _send)
+        except Exception as exc:
+            request = Request(scope)
+            if self.debug:
+                # In debug mode, return traceback responses.
+                response = self.debug_response(request, exc)
+            elif self.handler is None:
+                # Use our default 500 error handler.
+                response = self.error_response(request, exc)
+            else:
+                # Use an installed 500 error handler.
+                if is_async_callable(self.handler):
+                    response = await self.handler(request, exc)  # type: ignore[assignment, arg-type]
+                else:
+                    response = await run_in_threadpool(self.handler, request, exc)  # type: ignore[arg-type]
+
+            if not response_started:
+                await response(scope, receive, send)
+
+            # We always continue to raise the exception.
+            # This allows servers to log the error, or allows test clients
+            # to optionally raise the error within the test case.
+>           raise exc
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\errors.py:186:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <starlette.middleware.errors.ServerErrorMiddleware object at 0x000001E3BE0AC990>
+scope = {'app': <fastapi.applications.FastAPI object at 0x000001E3BD53E510>, 'client': ('testclient', 50000), 'endpoint': <function get_usage_analytics at 0x000001E3BDC9F740>, 'extensions': {'http.response.debug': {}}, ...}
+receive = <function _TestClientTransport.handle_request.<locals>.receive at 0x000001E3BE073A60>
+send = <function _TestClientTransport.handle_request.<locals>.send at 0x000001E3BF864A40>
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        response_started = False
+
+        async def _send(message: Message) -> None:
+            nonlocal response_started, send
+
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+>           await self.app(scope, receive, _send)
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\errors.py:164:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <starlette.middleware.base.BaseHTTPMiddleware object at 0x000001E3BE0AC8D0>
+scope = {'app': <fastapi.applications.FastAPI object at 0x000001E3BD53E510>, 'client': ('testclient', 50000), 'endpoint': <function get_usage_analytics at 0x000001E3BDC9F740>, 'extensions': {'http.response.debug': {}}, ...}
+receive = <function _TestClientTransport.handle_request.<locals>.receive at 0x000001E3BE073A60>
+send = <function ServerErrorMiddleware.__call__.<locals>._send at 0x000001E3BF867BA0>
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = _CachedRequest(scope, receive)
+        wrapped_receive = request.wrapped_receive
+        response_sent = anyio.Event()
+        app_exc: Exception | None = None
+        exception_already_raised = False
+
+        async def call_next(request: Request) -> Response:
+            async def receive_or_disconnect() -> Message:
+                if response_sent.is_set():
+                    return {"type": "http.disconnect"}
+
+                async with anyio.create_task_group() as task_group:
+
+                    async def wrap(func: Callable[[], Awaitable[T]]) -> T:
+                        result = await func()
+                        task_group.cancel_scope.cancel()
+                        return result
+
+                    task_group.start_soon(wrap, response_sent.wait)
+                    message = await wrap(wrapped_receive)
+
+                if response_sent.is_set():
+                    return {"type": "http.disconnect"}
+
+                return message
+
+            async def send_no_error(message: Message) -> None:
+                try:
+                    await send_stream.send(message)
+                except anyio.BrokenResourceError:
+                    # recv_stream has been closed, i.e. response_sent has been set.
+                    return
+
+            async def coro() -> None:
+                nonlocal app_exc
+
+                with send_stream:
+                    try:
+                        await self.app(scope, receive_or_disconnect, send_no_error)
+                    except Exception as exc:
+                        app_exc = exc
+
+            task_group.start_soon(coro)
+
+            try:
+                message = await recv_stream.receive()
+                info = message.get("info", None)
+                if message["type"] == "http.response.debug" and info is not None:
+                    message = await recv_stream.receive()
+            except anyio.EndOfStream:
+                if app_exc is not None:
+                    nonlocal exception_already_raised
+                    exception_already_raised = True
+                    # Prevent `anyio.EndOfStream` from polluting app exception context.
+                    # If both cause and context are None then the context is suppressed
+                    # and `anyio.EndOfStream` is not present in the exception traceback.
+                    # If exception cause is not None then it is propagated with
+                    # reraising here.
+                    # If exception has no cause but has context set then the context is
+                    # propagated as a cause with the reraise. This is necessary in order
+                    # to prevent `anyio.EndOfStream` from polluting the exception
+                    # context.
+                    raise app_exc from app_exc.__cause__ or app_exc.__context__
+                raise RuntimeError("No response returned.")
+
+            assert message["type"] == "http.response.start"
+
+            async def body_stream() -> BodyStreamGenerator:
+                async for message in recv_stream:
+                    if message["type"] == "http.response.pathsend":
+                        yield message
+                        break
+                    assert message["type"] == "http.response.body", f"Unexpected message: {message}"
+                    body = message.get("body", b"")
+                    if body:
+                        yield body
+                    if not message.get("more_body", False):
+                        break
+
+            response = _StreamingResponse(status_code=message["status"], content=body_stream(), info=info)
+            response.raw_headers = message["headers"]
+            return response
+
+        streams: anyio.create_memory_object_stream[Message] = anyio.create_memory_object_stream()
+        send_stream, recv_stream = streams
+        with recv_stream, send_stream:
+            async with create_collapsing_task_group() as task_group:
+>               response = await self.dispatch_func(request, call_next)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py:193:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+request = <starlette.middleware.base._CachedRequest object at 0x000001E3BFB2A2D0>
+call_next = <function BaseHTTPMiddleware.__call__.<locals>.call_next at 0x000001E3BF8645E0>
+
+    @app.middleware("http")
+    async def _dashboard_health_middleware(request: Request, call_next):
+        """Outermost middleware: count unhandled exceptions and 5xx responses.
+
+        Registered after ``_token_auth_seam`` so it is the outermost layer
+        (Starlette middleware is outermost-last) — nothing below can raise past
+        it unseen.  Records into :data:`DASHBOARD_HEALTH` and re-raises; never
+        swallows or alters the response.
+        """
+        try:
+>           response = await call_next(request)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^
+
+hermes_cli\web_server.py:1224:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+request = <starlette.middleware.base._CachedRequest object at 0x000001E3BFB2A2D0>
+
+    async def call_next(request: Request) -> Response:
+        async def receive_or_disconnect() -> Message:
+            if response_sent.is_set():
+                return {"type": "http.disconnect"}
+
+            async with anyio.create_task_group() as task_group:
+
+                async def wrap(func: Callable[[], Awaitable[T]]) -> T:
+                    result = await func()
+                    task_group.cancel_scope.cancel()
+                    return result
+
+                task_group.start_soon(wrap, response_sent.wait)
+                message = await wrap(wrapped_receive)
+
+            if response_sent.is_set():
+                return {"type": "http.disconnect"}
+
+            return message
+
+        async def send_no_error(message: Message) -> None:
+            try:
+                await send_stream.send(message)
+            except anyio.BrokenResourceError:
+                # recv_stream has been closed, i.e. response_sent has been set.
+                return
+
+        async def coro() -> None:
+            nonlocal app_exc
+
+            with send_stream:
+                try:
+                    await self.app(scope, receive_or_disconnect, send_no_error)
+                except Exception as exc:
+                    app_exc = exc
+
+        task_group.start_soon(coro)
+
+        try:
+            message = await recv_stream.receive()
+            info = message.get("info", None)
+            if message["type"] == "http.response.debug" and info is not None:
+                message = await recv_stream.receive()
+        except anyio.EndOfStream:
+            if app_exc is not None:
+                nonlocal exception_already_raised
+                exception_already_raised = True
+                # Prevent `anyio.EndOfStream` from polluting app exception context.
+                # If both cause and context are None then the context is suppressed
+                # and `anyio.EndOfStream` is not present in the exception traceback.
+                # If exception cause is not None then it is propagated with
+                # reraising here.
+                # If exception has no cause but has context set then the context is
+                # propagated as a cause with the reraise. This is necessary in order
+                # to prevent `anyio.EndOfStream` from polluting the exception
+                # context.
+>               raise app_exc from app_exc.__cause__ or app_exc.__context__
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py:168:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    async def coro() -> None:
+        nonlocal app_exc
+
+        with send_stream:
+            try:
+>               await self.app(scope, receive_or_disconnect, send_no_error)
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py:144:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <starlette.middleware.base.BaseHTTPMiddleware object at 0x000001E3BE0AC910>
+scope = {'app': <fastapi.applications.FastAPI object at 0x000001E3BD53E510>, 'client': ('testclient', 50000), 'endpoint': <function get_usage_analytics at 0x000001E3BDC9F740>, 'extensions': {'http.response.debug': {}}, ...}
+receive = <function BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.receive_or_disconnect at 0x000001E3BF867740>
+send = <function BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.send_no_error at 0x000001E3BF867D80>
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = _CachedRequest(scope, receive)
+        wrapped_receive = request.wrapped_receive
+        response_sent = anyio.Event()
+        app_exc: Exception | None = None
+        exception_already_raised = False
+
+        async def call_next(request: Request) -> Response:
+            async def receive_or_disconnect() -> Message:
+                if response_sent.is_set():
+                    return {"type": "http.disconnect"}
+
+                async with anyio.create_task_group() as task_group:
+
+                    async def wrap(func: Callable[[], Awaitable[T]]) -> T:
+                        result = await func()
+                        task_group.cancel_scope.cancel()
+                        return result
+
+                    task_group.start_soon(wrap, response_sent.wait)
+                    message = await wrap(wrapped_receive)
+
+                if response_sent.is_set():
+                    return {"type": "http.disconnect"}
+
+                return message
+
+            async def send_no_error(message: Message) -> None:
+                try:
+                    await send_stream.send(message)
+                except anyio.BrokenResourceError:
+                    # recv_stream has been closed, i.e. response_sent has been set.
+                    return
+
+            async def coro() -> None:
+                nonlocal app_exc
+
+                with send_stream:
+                    try:
+                        await self.app(scope, receive_or_disconnect, send_no_error)
+                    except Exception as exc:
+                        app_exc = exc
+
+            task_group.start_soon(coro)
+
+            try:
+                message = await recv_stream.receive()
+                info = message.get("info", None)
+                if message["type"] == "http.response.debug" and info is not None:
+                    message = await recv_stream.receive()
+            except anyio.EndOfStream:
+                if app_exc is not None:
+                    nonlocal exception_already_raised
+                    exception_already_raised = True
+                    # Prevent `anyio.EndOfStream` from polluting app exception context.
+                    # If both cause and context are None then the context is suppressed
+                    # and `anyio.EndOfStream` is not present in the exception traceback.
+                    # If exception cause is not None then it is propagated with
+                    # reraising here.
+                    # If exception has no cause but has context set then the context is
+                    # propagated as a cause with the reraise. This is necessary in order
+                    # to prevent `anyio.EndOfStream` from polluting the exception
+                    # context.
+                    raise app_exc from app_exc.__cause__ or app_exc.__context__
+                raise RuntimeError("No response returned.")
+
+            assert message["type"] == "http.response.start"
+
+            async def body_stream() -> BodyStreamGenerator:
+                async for message in recv_stream:
+                    if message["type"] == "http.response.pathsend":
+                        yield message
+                        break
+                    assert message["type"] == "http.response.body", f"Unexpected message: {message}"
+                    body = message.get("body", b"")
+                    if body:
+                        yield body
+                    if not message.get("more_body", False):
+                        break
+
+            response = _StreamingResponse(status_code=message["status"], content=body_stream(), info=info)
+            response.raw_headers = message["headers"]
+            return response
+
+        streams: anyio.create_memory_object_stream[Message] = anyio.create_memory_object_stream()
+        send_stream, recv_stream = streams
+        with recv_stream, send_stream:
+            async with create_collapsing_task_group() as task_group:
+>               response = await self.dispatch_func(request, call_next)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py:193:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+request = <starlette.middleware.base._CachedRequest object at 0x000001E3BFB29C50>
+call_next = <function BaseHTTPMiddleware.__call__.<locals>.call_next at 0x000001E3BF864540>
+
+    @app.middleware("http")
+    async def _token_auth_seam(request: Request, call_next):
+        """Outermost auth seam: non-interactive bearer-token auth for opted-in routes.
+
+        Registered LAST so it runs FIRST (Starlette middleware is outermost-last).
+        A registered token route is fully owned here — authenticate by token,
+        attach the principal + ``token_authenticated`` flag, and let the downstream
+        cookie/session gates skip enforcement. Non-token routes pass straight
+        through untouched.
+        """
+        from hermes_cli.dashboard_auth.token_auth import token_auth_middleware
+>       return await token_auth_middleware(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+hermes_cli\web_server.py:1148:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+request = <starlette.middleware.base._CachedRequest object at 0x000001E3BFB29C50>
+call_next = <function BaseHTTPMiddleware.__call__.<locals>.call_next at 0x000001E3BF864540>
+
+    async def token_auth_middleware(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        """Outermost auth seam for token-authable routes.
+
+        No-op pass-through for any path not registered via
+        :func:`register_token_route`. For a registered path, token auth is the
+        only accepted scheme:
+
+          * valid token  → attach principal + ``token_authenticated`` flag, pass through.
+          * unreachable  → 503 (provider backing store down; not "bad credentials").
+          * otherwise    → 401 unauthenticated.
+
+        Runs before the cookie/session gates (installed last in ``web_server.py``).
+        The cookie gates honour ``request.state.token_authenticated`` and skip
+        enforcement, so a token-authed request is never redirected to ``/login``.
+        """
+        path = request.url.path
+        if not is_token_route(path):
+>           return await call_next(request)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^
+
+hermes_cli\dashboard_auth\token_auth.py:164:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+request = <starlette.middleware.base._CachedRequest object at 0x000001E3BFB29C50>
+
+    async def call_next(request: Request) -> Response:
+        async def receive_or_disconnect() -> Message:
+            if response_sent.is_set():
+                return {"type": "http.disconnect"}
+
+            async with anyio.create_task_group() as task_group:
+
+                async def wrap(func: Callable[[], Awaitable[T]]) -> T:
+                    result = await func()
+                    task_group.cancel_scope.cancel()
+                    return result
+
+                task_group.start_soon(wrap, response_sent.wait)
+                message = await wrap(wrapped_receive)
+
+            if response_sent.is_set():
+                return {"type": "http.disconnect"}
+
+            return message
+
+        async def send_no_error(message: Message) -> None:
+            try:
+                await send_stream.send(message)
+            except anyio.BrokenResourceError:
+                # recv_stream has been closed, i.e. response_sent has been set.
+                return
+
+        async def coro() -> None:
+            nonlocal app_exc
+
+            with send_stream:
+                try:
+                    await self.app(scope, receive_or_disconnect, send_no_error)
+                except Exception as exc:
+                    app_exc = exc
+
+        task_group.start_soon(coro)
+
+        try:
+            message = await recv_stream.receive()
+            info = message.get("info", None)
+            if message["type"] == "http.response.debug" and info is not None:
+                message = await recv_stream.receive()
+        except anyio.EndOfStream:
+            if app_exc is not None:
+                nonlocal exception_already_raised
+                exception_already_raised = True
+                # Prevent `anyio.EndOfStream` from polluting app exception context.
+                # If both cause and context are None then the context is suppressed
+                # and `anyio.EndOfStream` is not present in the exception traceback.
+                # If exception cause is not None then it is propagated with
+                # reraising here.
+                # If exception has no cause but has context set then the context is
+                # propagated as a cause with the reraise. This is necessary in order
+                # to prevent `anyio.EndOfStream` from polluting the exception
+                # context.
+>               raise app_exc from app_exc.__cause__ or app_exc.__context__
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py:168:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    async def coro() -> None:
+        nonlocal app_exc
+
+        with send_stream:
+            try:
+>               await self.app(scope, receive_or_disconnect, send_no_error)
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py:144:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <starlette.middleware.base.BaseHTTPMiddleware object at 0x000001E3BE0AC950>
+scope = {'app': <fastapi.applications.FastAPI object at 0x000001E3BD53E510>, 'client': ('testclient', 50000), 'endpoint': <function get_usage_analytics at 0x000001E3BDC9F740>, 'extensions': {'http.response.debug': {}}, ...}
+receive = <function BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.receive_or_disconnect at 0x000001E3BF866DE0>
+send = <function BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.send_no_error at 0x000001E3BF8674C0>
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = _CachedRequest(scope, receive)
+        wrapped_receive = request.wrapped_receive
+        response_sent = anyio.Event()
+        app_exc: Exception | None = None
+        exception_already_raised = False
+
+        async def call_next(request: Request) -> Response:
+            async def receive_or_disconnect() -> Message:
+                if response_sent.is_set():
+                    return {"type": "http.disconnect"}
+
+                async with anyio.create_task_group() as task_group:
+
+                    async def wrap(func: Callable[[], Awaitable[T]]) -> T:
+                        result = await func()
+                        task_group.cancel_scope.cancel()
+                        return result
+
+                    task_group.start_soon(wrap, response_sent.wait)
+                    message = await wrap(wrapped_receive)
+
+                if response_sent.is_set():
+                    return {"type": "http.disconnect"}
+
+                return message
+
+            async def send_no_error(message: Message) -> None:
+                try:
+                    await send_stream.send(message)
+                except anyio.BrokenResourceError:
+                    # recv_stream has been closed, i.e. response_sent has been set.
+                    return
+
+            async def coro() -> None:
+                nonlocal app_exc
+
+                with send_stream:
+                    try:
+                        await self.app(scope, receive_or_disconnect, send_no_error)
+                    except Exception as exc:
+                        app_exc = exc
+
+            task_group.start_soon(coro)
+
+            try:
+                message = await recv_stream.receive()
+                info = message.get("info", None)
+                if message["type"] == "http.response.debug" and info is not None:
+                    message = await recv_stream.receive()
+            except anyio.EndOfStream:
+                if app_exc is not None:
+                    nonlocal exception_already_raised
+                    exception_already_raised = True
+                    # Prevent `anyio.EndOfStream` from polluting app exception context.
+                    # If both cause and context are None then the context is suppressed
+                    # and `anyio.EndOfStream` is not present in the exception traceback.
+                    # If exception cause is not None then it is propagated with
+                    # reraising here.
+                    # If exception has no cause but has context set then the context is
+                    # propagated as a cause with the reraise. This is necessary in order
+                    # to prevent `anyio.EndOfStream` from polluting the exception
+                    # context.
+                    raise app_exc from app_exc.__cause__ or app_exc.__context__
+                raise RuntimeError("No response returned.")
+
+            assert message["type"] == "http.response.start"
+
+            async def body_stream() -> BodyStreamGenerator:
+                async for message in recv_stream:
+                    if message["type"] == "http.response.pathsend":
+                        yield message
+                        break
+                    assert message["type"] == "http.response.body", f"Unexpected message: {message}"
+                    body = message.get("body", b"")
+                    if body:
+                        yield body
+                    if not message.get("more_body", False):
+                        break
+
+            response = _StreamingResponse(status_code=message["status"], content=body_stream(), info=info)
+            response.raw_headers = message["headers"]
+            return response
+
+        streams: anyio.create_memory_object_stream[Message] = anyio.create_memory_object_stream()
+        send_stream, recv_stream = streams
+        with recv_stream, send_stream:
+            async with create_collapsing_task_group() as task_group:
+>               response = await self.dispatch_func(request, call_next)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py:193:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+request = <starlette.middleware.base._CachedRequest object at 0x000001E3BFB2BD50>
+call_next = <function BaseHTTPMiddleware.__call__.<locals>.call_next at 0x000001E3BF864D60>
+
+    @app.middleware("http")
+    async def auth_middleware(request: Request, call_next):
+        """Require the session token on all /api/ routes except the public list."""
+        # A request already authenticated by the token-auth seam (a service caller
+        # presenting a bearer token on a registered token route) carries
+        # ``token_authenticated`` — never bounce it through the cookie/session gate.
+        if getattr(request.state, "token_authenticated", False):
+            return await call_next(request)
+        # When the OAuth gate is active, cookie-based auth (gated_auth_middleware
+        # above) is authoritative.  The legacy _SESSION_TOKEN path is loopback-only
+        # and is skipped here so the gate's session attachment isn't overridden.
+        if getattr(request.app.state, "auth_required", False):
+            return await call_next(request)
+        path = request.url.path
+        is_mcp_oauth_callback = path.startswith("/api/mcp/oauth/callback/")
+        if path.startswith("/api/") and path not in _PUBLIC_API_PATHS and not is_mcp_oauth_callback:
+            if not _has_valid_session_token(request) and not _has_valid_query_token(request, path):
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Unauthorized"},
+                )
+>       return await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+
+hermes_cli\web_server.py:1134:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+request = <starlette.middleware.base._CachedRequest object at 0x000001E3BFB2BD50>
+
+    async def call_next(request: Request) -> Response:
+        async def receive_or_disconnect() -> Message:
+            if response_sent.is_set():
+                return {"type": "http.disconnect"}
+
+            async with anyio.create_task_group() as task_group:
+
+                async def wrap(func: Callable[[], Awaitable[T]]) -> T:
+                    result = await func()
+                    task_group.cancel_scope.cancel()
+                    return result
+
+                task_group.start_soon(wrap, response_sent.wait)
+                message = await wrap(wrapped_receive)
+
+            if response_sent.is_set():
+                return {"type": "http.disconnect"}
+
+            return message
+
+        async def send_no_error(message: Message) -> None:
+            try:
+                await send_stream.send(message)
+            except anyio.BrokenResourceError:
+                # recv_stream has been closed, i.e. response_sent has been set.
+                return
+
+        async def coro() -> None:
+            nonlocal app_exc
+
+            with send_stream:
+                try:
+                    await self.app(scope, receive_or_disconnect, send_no_error)
+                except Exception as exc:
+                    app_exc = exc
+
+        task_group.start_soon(coro)
+
+        try:
+            message = await recv_stream.receive()
+            info = message.get("info", None)
+            if message["type"] == "http.response.debug" and info is not None:
+                message = await recv_stream.receive()
+        except anyio.EndOfStream:
+            if app_exc is not None:
+                nonlocal exception_already_raised
+                exception_already_raised = True
+                # Prevent `anyio.EndOfStream` from polluting app exception context.
+                # If both cause and context are None then the context is suppressed
+                # and `anyio.EndOfStream` is not present in the exception traceback.
+                # If exception cause is not None then it is propagated with
+                # reraising here.
+                # If exception has no cause but has context set then the context is
+                # propagated as a cause with the reraise. This is necessary in order
+                # to prevent `anyio.EndOfStream` from polluting the exception
+                # context.
+>               raise app_exc from app_exc.__cause__ or app_exc.__context__
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py:168:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    async def coro() -> None:
+        nonlocal app_exc
+
+        with send_stream:
+            try:
+>               await self.app(scope, receive_or_disconnect, send_no_error)
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py:144:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <starlette.middleware.base.BaseHTTPMiddleware object at 0x000001E3BAD8C650>
+scope = {'app': <fastapi.applications.FastAPI object at 0x000001E3BD53E510>, 'client': ('testclient', 50000), 'endpoint': <function get_usage_analytics at 0x000001E3BDC9F740>, 'extensions': {'http.response.debug': {}}, ...}
+receive = <function BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.receive_or_disconnect at 0x000001E3BF865DA0>
+send = <function BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.send_no_error at 0x000001E3BF865BC0>
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = _CachedRequest(scope, receive)
+        wrapped_receive = request.wrapped_receive
+        response_sent = anyio.Event()
+        app_exc: Exception | None = None
+        exception_already_raised = False
+
+        async def call_next(request: Request) -> Response:
+            async def receive_or_disconnect() -> Message:
+                if response_sent.is_set():
+                    return {"type": "http.disconnect"}
+
+                async with anyio.create_task_group() as task_group:
+
+                    async def wrap(func: Callable[[], Awaitable[T]]) -> T:
+                        result = await func()
+                        task_group.cancel_scope.cancel()
+                        return result
+
+                    task_group.start_soon(wrap, response_sent.wait)
+                    message = await wrap(wrapped_receive)
+
+                if response_sent.is_set():
+                    return {"type": "http.disconnect"}
+
+                return message
+
+            async def send_no_error(message: Message) -> None:
+                try:
+                    await send_stream.send(message)
+                except anyio.BrokenResourceError:
+                    # recv_stream has been closed, i.e. response_sent has been set.
+                    return
+
+            async def coro() -> None:
+                nonlocal app_exc
+
+                with send_stream:
+                    try:
+                        await self.app(scope, receive_or_disconnect, send_no_error)
+                    except Exception as exc:
+                        app_exc = exc
+
+            task_group.start_soon(coro)
+
+            try:
+                message = await recv_stream.receive()
+                info = message.get("info", None)
+                if message["type"] == "http.response.debug" and info is not None:
+                    message = await recv_stream.receive()
+            except anyio.EndOfStream:
+                if app_exc is not None:
+                    nonlocal exception_already_raised
+                    exception_already_raised = True
+                    # Prevent `anyio.EndOfStream` from polluting app exception context.
+                    # If both cause and context are None then the context is suppressed
+                    # and `anyio.EndOfStream` is not present in the exception traceback.
+                    # If exception cause is not None then it is propagated with
+                    # reraising here.
+                    # If exception has no cause but has context set then the context is
+                    # propagated as a cause with the reraise. This is necessary in order
+                    # to prevent `anyio.EndOfStream` from polluting the exception
+                    # context.
+                    raise app_exc from app_exc.__cause__ or app_exc.__context__
+                raise RuntimeError("No response returned.")
+
+            assert message["type"] == "http.response.start"
+
+            async def body_stream() -> BodyStreamGenerator:
+                async for message in recv_stream:
+                    if message["type"] == "http.response.pathsend":
+                        yield message
+                        break
+                    assert message["type"] == "http.response.body", f"Unexpected message: {message}"
+                    body = message.get("body", b"")
+                    if body:
+                        yield body
+                    if not message.get("more_body", False):
+                        break
+
+            response = _StreamingResponse(status_code=message["status"], content=body_stream(), info=info)
+            response.raw_headers = message["headers"]
+            return response
+
+        streams: anyio.create_memory_object_stream[Message] = anyio.create_memory_object_stream()
+        send_stream, recv_stream = streams
+        with recv_stream, send_stream:
+            async with create_collapsing_task_group() as task_group:
+>               response = await self.dispatch_func(request, call_next)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py:193:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+request = <starlette.middleware.base._CachedRequest object at 0x000001E3BFB2ADD0>
+call_next = <function BaseHTTPMiddleware.__call__.<locals>.call_next at 0x000001E3BF865440>
+
+    @app.middleware("http")
+    async def _dashboard_auth_gate(request: Request, call_next):
+        from hermes_cli.dashboard_auth.middleware import gated_auth_middleware
+>       return await gated_auth_middleware(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+hermes_cli\web_server.py:1110:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+request = <starlette.middleware.base._CachedRequest object at 0x000001E3BFB2ADD0>
+call_next = <function BaseHTTPMiddleware.__call__.<locals>.call_next at 0x000001E3BF865440>
+
+    async def gated_auth_middleware(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        """Engaged only when ``app.state.auth_required is True``.
+
+        No-op pass-through in loopback mode so the legacy auth_middleware can
+        handle those binds via ``_SESSION_TOKEN``.
+        """
+        if not getattr(request.app.state, "auth_required", False):
+>           return await call_next(request)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^
+
+hermes_cli\dashboard_auth\middleware.py:333:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+request = <starlette.middleware.base._CachedRequest object at 0x000001E3BFB2ADD0>
+
+    async def call_next(request: Request) -> Response:
+        async def receive_or_disconnect() -> Message:
+            if response_sent.is_set():
+                return {"type": "http.disconnect"}
+
+            async with anyio.create_task_group() as task_group:
+
+                async def wrap(func: Callable[[], Awaitable[T]]) -> T:
+                    result = await func()
+                    task_group.cancel_scope.cancel()
+                    return result
+
+                task_group.start_soon(wrap, response_sent.wait)
+                message = await wrap(wrapped_receive)
+
+            if response_sent.is_set():
+                return {"type": "http.disconnect"}
+
+            return message
+
+        async def send_no_error(message: Message) -> None:
+            try:
+                await send_stream.send(message)
+            except anyio.BrokenResourceError:
+                # recv_stream has been closed, i.e. response_sent has been set.
+                return
+
+        async def coro() -> None:
+            nonlocal app_exc
+
+            with send_stream:
+                try:
+                    await self.app(scope, receive_or_disconnect, send_no_error)
+                except Exception as exc:
+                    app_exc = exc
+
+        task_group.start_soon(coro)
+
+        try:
+            message = await recv_stream.receive()
+            info = message.get("info", None)
+            if message["type"] == "http.response.debug" and info is not None:
+                message = await recv_stream.receive()
+        except anyio.EndOfStream:
+            if app_exc is not None:
+                nonlocal exception_already_raised
+                exception_already_raised = True
+                # Prevent `anyio.EndOfStream` from polluting app exception context.
+                # If both cause and context are None then the context is suppressed
+                # and `anyio.EndOfStream` is not present in the exception traceback.
+                # If exception cause is not None then it is propagated with
+                # reraising here.
+                # If exception has no cause but has context set then the context is
+                # propagated as a cause with the reraise. This is necessary in order
+                # to prevent `anyio.EndOfStream` from polluting the exception
+                # context.
+>               raise app_exc from app_exc.__cause__ or app_exc.__context__
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py:168:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    async def coro() -> None:
+        nonlocal app_exc
+
+        with send_stream:
+            try:
+>               await self.app(scope, receive_or_disconnect, send_no_error)
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py:144:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <starlette.middleware.base.BaseHTTPMiddleware object at 0x000001E3BDC06810>
+scope = {'app': <fastapi.applications.FastAPI object at 0x000001E3BD53E510>, 'client': ('testclient', 50000), 'endpoint': <function get_usage_analytics at 0x000001E3BDC9F740>, 'extensions': {'http.response.debug': {}}, ...}
+receive = <function BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.receive_or_disconnect at 0x000001E3BFA0BBA0>
+send = <function BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.send_no_error at 0x000001E3BFA0BB00>
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = _CachedRequest(scope, receive)
+        wrapped_receive = request.wrapped_receive
+        response_sent = anyio.Event()
+        app_exc: Exception | None = None
+        exception_already_raised = False
+
+        async def call_next(request: Request) -> Response:
+            async def receive_or_disconnect() -> Message:
+                if response_sent.is_set():
+                    return {"type": "http.disconnect"}
+
+                async with anyio.create_task_group() as task_group:
+
+                    async def wrap(func: Callable[[], Awaitable[T]]) -> T:
+                        result = await func()
+                        task_group.cancel_scope.cancel()
+                        return result
+
+                    task_group.start_soon(wrap, response_sent.wait)
+                    message = await wrap(wrapped_receive)
+
+                if response_sent.is_set():
+                    return {"type": "http.disconnect"}
+
+                return message
+
+            async def send_no_error(message: Message) -> None:
+                try:
+                    await send_stream.send(message)
+                except anyio.BrokenResourceError:
+                    # recv_stream has been closed, i.e. response_sent has been set.
+                    return
+
+            async def coro() -> None:
+                nonlocal app_exc
+
+                with send_stream:
+                    try:
+                        await self.app(scope, receive_or_disconnect, send_no_error)
+                    except Exception as exc:
+                        app_exc = exc
+
+            task_group.start_soon(coro)
+
+            try:
+                message = await recv_stream.receive()
+                info = message.get("info", None)
+                if message["type"] == "http.response.debug" and info is not None:
+                    message = await recv_stream.receive()
+            except anyio.EndOfStream:
+                if app_exc is not None:
+                    nonlocal exception_already_raised
+                    exception_already_raised = True
+                    # Prevent `anyio.EndOfStream` from polluting app exception context.
+                    # If both cause and context are None then the context is suppressed
+                    # and `anyio.EndOfStream` is not present in the exception traceback.
+                    # If exception cause is not None then it is propagated with
+                    # reraising here.
+                    # If exception has no cause but has context set then the context is
+                    # propagated as a cause with the reraise. This is necessary in order
+                    # to prevent `anyio.EndOfStream` from polluting the exception
+                    # context.
+                    raise app_exc from app_exc.__cause__ or app_exc.__context__
+                raise RuntimeError("No response returned.")
+
+            assert message["type"] == "http.response.start"
+
+            async def body_stream() -> BodyStreamGenerator:
+                async for message in recv_stream:
+                    if message["type"] == "http.response.pathsend":
+                        yield message
+                        break
+                    assert message["type"] == "http.response.body", f"Unexpected message: {message}"
+                    body = message.get("body", b"")
+                    if body:
+                        yield body
+                    if not message.get("more_body", False):
+                        break
+
+            response = _StreamingResponse(status_code=message["status"], content=body_stream(), info=info)
+            response.raw_headers = message["headers"]
+            return response
+
+        streams: anyio.create_memory_object_stream[Message] = anyio.create_memory_object_stream()
+        send_stream, recv_stream = streams
+        with recv_stream, send_stream:
+            async with create_collapsing_task_group() as task_group:
+>               response = await self.dispatch_func(request, call_next)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py:193:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+request = <starlette.middleware.base._CachedRequest object at 0x000001E3BFB2B890>
+call_next = <function BaseHTTPMiddleware.__call__.<locals>.call_next at 0x000001E3BFA0BA60>
+
+    @app.middleware("http")
+    async def _plugin_api_runtime_gate(request: Request, call_next):
+        """Block requests to disabled plugin API routes at request time.
+
+        :func:`_mount_plugin_api_routes` gates at import time, but if a plugin
+        is disabled *after* the dashboard is already running, its FastAPI router
+        remains mounted until restart.  This middleware enforces the enabled/
+        disabled policy on every request to ``/api/plugins/{name}/...`` so that
+        runtime config changes take effect immediately.
+
+        Registered BEFORE the auth middlewares (so it executes AFTER them): a
+        request that hasn't cleared auth must get auth's 401 first, never this
+        gate's 404 — otherwise an unauthenticated caller could fingerprint which
+        plugins are installed/enabled by reading the status code. We only reach
+        the enabled/disabled check for a request that auth already let through.
+        """
+        path = request.url.path
+        if path.startswith("/api/plugins/"):
+            # Only gate authenticated requests. Unauthenticated ones fall
+            # through so auth_middleware / the OAuth gate return 401 first and
+            # this route can't be used as a plugin-name oracle.
+            _authed = (
+                getattr(request.state, "token_authenticated", False)
+                or getattr(request.app.state, "auth_required", False)
+                or _has_valid_session_token(request)
+                or _has_valid_query_token(request, path)
+            )
+            if _authed:
+                # Extract plugin name from /api/plugins/<name>/...
+                parts = path.split("/")
+                # parts: ['', 'api', 'plugins', '<name>', ...]
+                if len(parts) >= 4:
+                    plugin_name = parts[3]
+                    if plugin_name:
+                        try:
+                            from hermes_cli.plugins_cmd import (
+                                _get_enabled_set,
+                                _get_disabled_set,
+                            )
+                            enabled_set = _get_enabled_set()
+                            disabled_set = _get_disabled_set()
+                        except Exception:
+                            enabled_set = set()
+                            disabled_set = set()
+                        # Determine plugin source.  Check the cached plugin list;
+                        # if not found, assume user plugin (safe default — blocks).
+                        plugins = _get_dashboard_plugins()
+                        plugin = next(
+                            (p for p in plugins if p.get("name") == plugin_name),
+                            None,
+                        )
+                        source = plugin.get("source") if plugin else "user"
+                        if source == "user":
+                            if plugin_name in disabled_set or plugin_name not in enabled_set:
+                                return JSONResponse(
+                                    status_code=404,
+                                    content={"detail": "Plugin not found"},
+                                )
+                        elif source == "bundled":
+                            if plugin_name in disabled_set:
+                                return JSONResponse(
+                                    status_code=404,
+                                    content={"detail": "Plugin not found"},
+                                )
+>       return await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+
+hermes_cli\web_server.py:1095:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+request = <starlette.middleware.base._CachedRequest object at 0x000001E3BFB2B890>
+
+    async def call_next(request: Request) -> Response:
+        async def receive_or_disconnect() -> Message:
+            if response_sent.is_set():
+                return {"type": "http.disconnect"}
+
+            async with anyio.create_task_group() as task_group:
+
+                async def wrap(func: Callable[[], Awaitable[T]]) -> T:
+                    result = await func()
+                    task_group.cancel_scope.cancel()
+                    return result
+
+                task_group.start_soon(wrap, response_sent.wait)
+                message = await wrap(wrapped_receive)
+
+            if response_sent.is_set():
+                return {"type": "http.disconnect"}
+
+            return message
+
+        async def send_no_error(message: Message) -> None:
+            try:
+                await send_stream.send(message)
+            except anyio.BrokenResourceError:
+                # recv_stream has been closed, i.e. response_sent has been set.
+                return
+
+        async def coro() -> None:
+            nonlocal app_exc
+
+            with send_stream:
+                try:
+                    await self.app(scope, receive_or_disconnect, send_no_error)
+                except Exception as exc:
+                    app_exc = exc
+
+        task_group.start_soon(coro)
+
+        try:
+            message = await recv_stream.receive()
+            info = message.get("info", None)
+            if message["type"] == "http.response.debug" and info is not None:
+                message = await recv_stream.receive()
+        except anyio.EndOfStream:
+            if app_exc is not None:
+                nonlocal exception_already_raised
+                exception_already_raised = True
+                # Prevent `anyio.EndOfStream` from polluting app exception context.
+                # If both cause and context are None then the context is suppressed
+                # and `anyio.EndOfStream` is not present in the exception traceback.
+                # If exception cause is not None then it is propagated with
+                # reraising here.
+                # If exception has no cause but has context set then the context is
+                # propagated as a cause with the reraise. This is necessary in order
+                # to prevent `anyio.EndOfStream` from polluting the exception
+                # context.
+>               raise app_exc from app_exc.__cause__ or app_exc.__context__
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py:168:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    async def coro() -> None:
+        nonlocal app_exc
+
+        with send_stream:
+            try:
+>               await self.app(scope, receive_or_disconnect, send_no_error)
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py:144:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <starlette.middleware.base.BaseHTTPMiddleware object at 0x000001E3BDCC14D0>
+scope = {'app': <fastapi.applications.FastAPI object at 0x000001E3BD53E510>, 'client': ('testclient', 50000), 'endpoint': <function get_usage_analytics at 0x000001E3BDC9F740>, 'extensions': {'http.response.debug': {}}, ...}
+receive = <function BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.receive_or_disconnect at 0x000001E3BFA0BD80>
+send = <function BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.send_no_error at 0x000001E3BFA0BE20>
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = _CachedRequest(scope, receive)
+        wrapped_receive = request.wrapped_receive
+        response_sent = anyio.Event()
+        app_exc: Exception | None = None
+        exception_already_raised = False
+
+        async def call_next(request: Request) -> Response:
+            async def receive_or_disconnect() -> Message:
+                if response_sent.is_set():
+                    return {"type": "http.disconnect"}
+
+                async with anyio.create_task_group() as task_group:
+
+                    async def wrap(func: Callable[[], Awaitable[T]]) -> T:
+                        result = await func()
+                        task_group.cancel_scope.cancel()
+                        return result
+
+                    task_group.start_soon(wrap, response_sent.wait)
+                    message = await wrap(wrapped_receive)
+
+                if response_sent.is_set():
+                    return {"type": "http.disconnect"}
+
+                return message
+
+            async def send_no_error(message: Message) -> None:
+                try:
+                    await send_stream.send(message)
+                except anyio.BrokenResourceError:
+                    # recv_stream has been closed, i.e. response_sent has been set.
+                    return
+
+            async def coro() -> None:
+                nonlocal app_exc
+
+                with send_stream:
+                    try:
+                        await self.app(scope, receive_or_disconnect, send_no_error)
+                    except Exception as exc:
+                        app_exc = exc
+
+            task_group.start_soon(coro)
+
+            try:
+                message = await recv_stream.receive()
+                info = message.get("info", None)
+                if message["type"] == "http.response.debug" and info is not None:
+                    message = await recv_stream.receive()
+            except anyio.EndOfStream:
+                if app_exc is not None:
+                    nonlocal exception_already_raised
+                    exception_already_raised = True
+                    # Prevent `anyio.EndOfStream` from polluting app exception context.
+                    # If both cause and context are None then the context is suppressed
+                    # and `anyio.EndOfStream` is not present in the exception traceback.
+                    # If exception cause is not None then it is propagated with
+                    # reraising here.
+                    # If exception has no cause but has context set then the context is
+                    # propagated as a cause with the reraise. This is necessary in order
+                    # to prevent `anyio.EndOfStream` from polluting the exception
+                    # context.
+                    raise app_exc from app_exc.__cause__ or app_exc.__context__
+                raise RuntimeError("No response returned.")
+
+            assert message["type"] == "http.response.start"
+
+            async def body_stream() -> BodyStreamGenerator:
+                async for message in recv_stream:
+                    if message["type"] == "http.response.pathsend":
+                        yield message
+                        break
+                    assert message["type"] == "http.response.body", f"Unexpected message: {message}"
+                    body = message.get("body", b"")
+                    if body:
+                        yield body
+                    if not message.get("more_body", False):
+                        break
+
+            response = _StreamingResponse(status_code=message["status"], content=body_stream(), info=info)
+            response.raw_headers = message["headers"]
+            return response
+
+        streams: anyio.create_memory_object_stream[Message] = anyio.create_memory_object_stream()
+        send_stream, recv_stream = streams
+        with recv_stream, send_stream:
+            async with create_collapsing_task_group() as task_group:
+>               response = await self.dispatch_func(request, call_next)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py:193:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+request = <starlette.middleware.base._CachedRequest object at 0x000001E3BFB28850>
+call_next = <function BaseHTTPMiddleware.__call__.<locals>.call_next at 0x000001E3BFB600E0>
+
+    @app.middleware("http")
+    async def host_header_middleware(request: Request, call_next):
+        """Reject requests whose Host header doesn't match the bound interface.
+
+        Defends against DNS rebinding: a victim browser on a localhost
+        dashboard is tricked into fetching from an attacker hostname that
+        TTL-flips to 127.0.0.1. CORS and same-origin checks don't help —
+        the browser now treats the attacker origin as same-origin with the
+        dashboard. Host-header validation at the app layer catches it.
+
+        See GHSA-ppp5-vxwm-4cf7.
+        """
+        # Store the bound host on app.state so this middleware can read it —
+        # set by start_server() at listen time.
+        bound_host = getattr(app.state, "bound_host", None)
+        if bound_host:
+            host_header = request.headers.get("host", "")
+            trusted_public_hosts = getattr(
+                app.state, "trusted_public_hosts", frozenset()
+            )
+            if not _is_accepted_host(
+                host_header, bound_host, trusted_public_hosts
+            ):
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "detail": (
+                            "Invalid Host header. Dashboard requests must use the "
+                            "bound hostname or the configured public hostname."
+                        ),
+                    },
+                )
+>       return await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+
+hermes_cli\web_server.py:1028:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+request = <starlette.middleware.base._CachedRequest object at 0x000001E3BFB28850>
+
+    async def call_next(request: Request) -> Response:
+        async def receive_or_disconnect() -> Message:
+            if response_sent.is_set():
+                return {"type": "http.disconnect"}
+
+            async with anyio.create_task_group() as task_group:
+
+                async def wrap(func: Callable[[], Awaitable[T]]) -> T:
+                    result = await func()
+                    task_group.cancel_scope.cancel()
+                    return result
+
+                task_group.start_soon(wrap, response_sent.wait)
+                message = await wrap(wrapped_receive)
+
+            if response_sent.is_set():
+                return {"type": "http.disconnect"}
+
+            return message
+
+        async def send_no_error(message: Message) -> None:
+            try:
+                await send_stream.send(message)
+            except anyio.BrokenResourceError:
+                # recv_stream has been closed, i.e. response_sent has been set.
+                return
+
+        async def coro() -> None:
+            nonlocal app_exc
+
+            with send_stream:
+                try:
+                    await self.app(scope, receive_or_disconnect, send_no_error)
+                except Exception as exc:
+                    app_exc = exc
+
+        task_group.start_soon(coro)
+
+        try:
+            message = await recv_stream.receive()
+            info = message.get("info", None)
+            if message["type"] == "http.response.debug" and info is not None:
+                message = await recv_stream.receive()
+        except anyio.EndOfStream:
+            if app_exc is not None:
+                nonlocal exception_already_raised
+                exception_already_raised = True
+                # Prevent `anyio.EndOfStream` from polluting app exception context.
+                # If both cause and context are None then the context is suppressed
+                # and `anyio.EndOfStream` is not present in the exception traceback.
+                # If exception cause is not None then it is propagated with
+                # reraising here.
+                # If exception has no cause but has context set then the context is
+                # propagated as a cause with the reraise. This is necessary in order
+                # to prevent `anyio.EndOfStream` from polluting the exception
+                # context.
+>               raise app_exc from app_exc.__cause__ or app_exc.__context__
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py:168:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    async def coro() -> None:
+        nonlocal app_exc
+
+        with send_stream:
+            try:
+>               await self.app(scope, receive_or_disconnect, send_no_error)
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\base.py:144:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <starlette.middleware.cors.CORSMiddleware object at 0x000001E3BDFC1190>
+scope = {'app': <fastapi.applications.FastAPI object at 0x000001E3BD53E510>, 'client': ('testclient', 50000), 'endpoint': <function get_usage_analytics at 0x000001E3BDC9F740>, 'extensions': {'http.response.debug': {}}, ...}
+receive = <function BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.receive_or_disconnect at 0x000001E3BFB60180>
+send = <function BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.send_no_error at 0x000001E3BFB60220>
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":  # pragma: no cover
+            await self.app(scope, receive, send)
+            return
+
+        method = scope["method"]
+        headers = Headers(scope=scope)
+        origin = headers.get("origin")
+
+        if origin is None:
+>           await self.app(scope, receive, send)
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\cors.py:88:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <starlette.middleware.exceptions.ExceptionMiddleware object at 0x000001E3BE0AC510>
+scope = {'app': <fastapi.applications.FastAPI object at 0x000001E3BD53E510>, 'client': ('testclient', 50000), 'endpoint': <function get_usage_analytics at 0x000001E3BDC9F740>, 'extensions': {'http.response.debug': {}}, ...}
+receive = <function BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.receive_or_disconnect at 0x000001E3BFB60180>
+send = <function BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.send_no_error at 0x000001E3BFB60220>
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+
+        scope["starlette.exception_handlers"] = (
+            self._exception_handlers,
+            self._status_handlers,
+        )
+
+        conn: Request | WebSocket
+        if scope["type"] == "http":
+            conn = Request(scope, receive, send)
+        else:
+            conn = WebSocket(scope, receive, send)
+
+>       await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\middleware\exceptions.py:63:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+scope = {'app': <fastapi.applications.FastAPI object at 0x000001E3BD53E510>, 'client': ('testclient', 50000), 'endpoint': <function get_usage_analytics at 0x000001E3BDC9F740>, 'extensions': {'http.response.debug': {}}, ...}
+receive = <function BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.receive_or_disconnect at 0x000001E3BFB60180>
+send = <function BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.send_no_error at 0x000001E3BFB60220>
+
+    async def wrapped_app(scope: Scope, receive: Receive, send: Send) -> None:
+        response_started = False
+
+        async def sender(message: Message) -> None:
+            nonlocal response_started
+
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await app(scope, receive, sender)
+        except Exception as exc:
+            handler = None
+
+            if isinstance(exc, HTTPException):
+                handler = status_handlers.get(exc.status_code)
+
+            if handler is None:
+                handler = _lookup_exception_handler(exception_handlers, exc)
+
+            if handler is None:
+>               raise exc
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\_exception_handler.py:53:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+scope = {'app': <fastapi.applications.FastAPI object at 0x000001E3BD53E510>, 'client': ('testclient', 50000), 'endpoint': <function get_usage_analytics at 0x000001E3BDC9F740>, 'extensions': {'http.response.debug': {}}, ...}
+receive = <function BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.receive_or_disconnect at 0x000001E3BFB60180>
+send = <function BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.send_no_error at 0x000001E3BFB60220>
+
+    async def wrapped_app(scope: Scope, receive: Receive, send: Send) -> None:
+        response_started = False
+
+        async def sender(message: Message) -> None:
+            nonlocal response_started
+
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+>           await app(scope, receive, sender)
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\_exception_handler.py:42:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <fastapi.middleware.asyncexitstack.AsyncExitStackMiddleware object at 0x000001E3BE0AC4D0>
+scope = {'app': <fastapi.applications.FastAPI object at 0x000001E3BD53E510>, 'client': ('testclient', 50000), 'endpoint': <function get_usage_analytics at 0x000001E3BDC9F740>, 'extensions': {'http.response.debug': {}}, ...}
+receive = <function BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.receive_or_disconnect at 0x000001E3BFB60180>
+send = <function wrap_app_handling_exceptions.<locals>.wrapped_app.<locals>.sender at 0x000001E3BFB60540>
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        async with AsyncExitStack() as stack:
+            scope[self.context_name] = stack
+>           await self.app(scope, receive, send)
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py:18:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <fastapi.routing.APIRouter object at 0x000001E3BD690350>
+scope = {'app': <fastapi.applications.FastAPI object at 0x000001E3BD53E510>, 'client': ('testclient', 50000), 'endpoint': <function get_usage_analytics at 0x000001E3BDC9F740>, 'extensions': {'http.response.debug': {}}, ...}
+receive = <function BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.receive_or_disconnect at 0x000001E3BFB60180>
+send = <function wrap_app_handling_exceptions.<locals>.wrapped_app.<locals>.sender at 0x000001E3BFB60540>
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """
+        The main entry point to the Router class.
+        """
+>       await self.middleware_stack(scope, receive, send)
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\routing.py:660:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <fastapi.routing.APIRouter object at 0x000001E3BD690350>
+scope = {'app': <fastapi.applications.FastAPI object at 0x000001E3BD53E510>, 'client': ('testclient', 50000), 'endpoint': <function get_usage_analytics at 0x000001E3BDC9F740>, 'extensions': {'http.response.debug': {}}, ...}
+receive = <function BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.receive_or_disconnect at 0x000001E3BFB60180>
+send = <function wrap_app_handling_exceptions.<locals>.wrapped_app.<locals>.sender at 0x000001E3BFB60540>
+
+    async def app(self, scope: Scope, receive: Receive, send: Send) -> None:
+        assert scope["type"] in ("http", "websocket", "lifespan")
+
+        if "router" not in scope:
+            scope["router"] = self
+
+        if scope["type"] == "lifespan":
+            await self.lifespan(scope, receive, send)
+            return
+
+        partial = None
+
+        for route in self.routes:
+            # Determine if any route matches the incoming scope,
+            # and hand over to the matching route if found.
+            match, child_scope = route.matches(scope)
+            if match == Match.FULL:
+                scope.update(child_scope)
+>               await route.handle(scope, receive, send)
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\routing.py:680:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = APIRoute(path='/api/analytics/usage', name='get_usage_analytics', methods=['GET'])
+scope = {'app': <fastapi.applications.FastAPI object at 0x000001E3BD53E510>, 'client': ('testclient', 50000), 'endpoint': <function get_usage_analytics at 0x000001E3BDC9F740>, 'extensions': {'http.response.debug': {}}, ...}
+receive = <function BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.receive_or_disconnect at 0x000001E3BFB60180>
+send = <function wrap_app_handling_exceptions.<locals>.wrapped_app.<locals>.sender at 0x000001E3BFB60540>
+
+    async def handle(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if self.methods and scope["method"] not in self.methods:
+            headers = {"Allow": ", ".join(self.methods)}
+            if "app" in scope:
+                raise HTTPException(status_code=405, headers=headers)
+            else:
+                response = PlainTextResponse("Method Not Allowed", status_code=405, headers=headers)
+            await response(scope, receive, send)
+        else:
+>           await self.app(scope, receive, send)
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\routing.py:276:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+scope = {'app': <fastapi.applications.FastAPI object at 0x000001E3BD53E510>, 'client': ('testclient', 50000), 'endpoint': <function get_usage_analytics at 0x000001E3BDC9F740>, 'extensions': {'http.response.debug': {}}, ...}
+receive = <function BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.receive_or_disconnect at 0x000001E3BFB60180>
+send = <function wrap_app_handling_exceptions.<locals>.wrapped_app.<locals>.sender at 0x000001E3BFB60540>
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:
+        request = Request(scope, receive, send)
+
+        async def app(scope: Scope, receive: Receive, send: Send) -> None:
+            # Starts customization
+            response_awaited = False
+            async with AsyncExitStack() as request_stack:
+                scope["fastapi_inner_astack"] = request_stack
+                async with AsyncExitStack() as function_stack:
+                    scope["fastapi_function_astack"] = function_stack
+                    response = await f(request)
+                await response(scope, receive, send)
+                # Continues customization
+                response_awaited = True
+            if not response_awaited:
+                raise FastAPIError(
+                    "Response not awaited. There's a high chance that the "
+                    "application code is raising an exception and a dependency with yield "
+                    "has a block with a bare except, or a block with except Exception, "
+                    "and is not raising the exception again. Read more about it in the "
+                    "docs: https://fastapi.tiangolo.com/tutorial/dependencies/dependencies-with-yield/#dependencies-with-yield-and-except"
+                )
+
+        # Same as in Starlette
+>       await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\routing.py:119:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+scope = {'app': <fastapi.applications.FastAPI object at 0x000001E3BD53E510>, 'client': ('testclient', 50000), 'endpoint': <function get_usage_analytics at 0x000001E3BDC9F740>, 'extensions': {'http.response.debug': {}}, ...}
+receive = <function BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.receive_or_disconnect at 0x000001E3BFB60180>
+send = <function wrap_app_handling_exceptions.<locals>.wrapped_app.<locals>.sender at 0x000001E3BFB60540>
+
+    async def wrapped_app(scope: Scope, receive: Receive, send: Send) -> None:
+        response_started = False
+
+        async def sender(message: Message) -> None:
+            nonlocal response_started
+
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await app(scope, receive, sender)
+        except Exception as exc:
+            handler = None
+
+            if isinstance(exc, HTTPException):
+                handler = status_handlers.get(exc.status_code)
+
+            if handler is None:
+                handler = _lookup_exception_handler(exception_handlers, exc)
+
+            if handler is None:
+>               raise exc
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\_exception_handler.py:53:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+scope = {'app': <fastapi.applications.FastAPI object at 0x000001E3BD53E510>, 'client': ('testclient', 50000), 'endpoint': <function get_usage_analytics at 0x000001E3BDC9F740>, 'extensions': {'http.response.debug': {}}, ...}
+receive = <function BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.receive_or_disconnect at 0x000001E3BFB60180>
+send = <function wrap_app_handling_exceptions.<locals>.wrapped_app.<locals>.sender at 0x000001E3BFB60540>
+
+    async def wrapped_app(scope: Scope, receive: Receive, send: Send) -> None:
+        response_started = False
+
+        async def sender(message: Message) -> None:
+            nonlocal response_started
+
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+>           await app(scope, receive, sender)
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\starlette\_exception_handler.py:42:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+scope = {'app': <fastapi.applications.FastAPI object at 0x000001E3BD53E510>, 'client': ('testclient', 50000), 'endpoint': <function get_usage_analytics at 0x000001E3BDC9F740>, 'extensions': {'http.response.debug': {}}, ...}
+receive = <function BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.receive_or_disconnect at 0x000001E3BFB60180>
+send = <function wrap_app_handling_exceptions.<locals>.wrapped_app.<locals>.sender at 0x000001E3BFB60720>
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:
+        # Starts customization
+        response_awaited = False
+        async with AsyncExitStack() as request_stack:
+            scope["fastapi_inner_astack"] = request_stack
+            async with AsyncExitStack() as function_stack:
+                scope["fastapi_function_astack"] = function_stack
+>               response = await f(request)
+                           ^^^^^^^^^^^^^^^^
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\routing.py:105:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+request = <starlette.requests.Request object at 0x000001E3BF81F3D0>
+
+    async def app(request: Request) -> Response:
+        response: Response | None = None
+        file_stack = request.scope.get("fastapi_middleware_astack")
+        assert isinstance(file_stack, AsyncExitStack), (
+            "fastapi_middleware_astack not found in request scope"
+        )
+
+        # Extract endpoint context for error messages
+        endpoint_ctx = (
+            _extract_endpoint_context(dependant.call)
+            if dependant.call
+            else EndpointContext()
+        )
+
+        if dependant.path:
+            # For mounted sub-apps, include the mount path prefix
+            mount_path = request.scope.get("root_path", "").rstrip("/")
+            endpoint_ctx["path"] = f"{request.method} {mount_path}{dependant.path}"
+
+        # Read body and auto-close files
+        try:
+            body: Any = None
+            if body_field:
+                if is_body_form:
+                    body = await request.form()
+                    file_stack.push_async_callback(body.close)
+                else:
+                    body_bytes = await request.body()
+                    if body_bytes:
+                        json_body: Any = Undefined
+                        content_type_value = request.headers.get("content-type")
+                        if not content_type_value:
+                            if not actual_strict_content_type:
+                                json_body = await request.json()
+                        else:
+                            message = email.message.Message()
+                            message["content-type"] = content_type_value
+                            if message.get_content_maintype() == "application":
+                                subtype = message.get_content_subtype()
+                                if subtype == "json" or subtype.endswith("+json"):
+                                    json_body = await request.json()
+                        if json_body != Undefined:
+                            body = json_body
+                        else:
+                            body = body_bytes
+        except json.JSONDecodeError as e:
+            validation_error = RequestValidationError(
+                [
+                    {
+                        "type": "json_invalid",
+                        "loc": ("body", e.pos),
+                        "msg": "JSON decode error",
+                        "input": {},
+                        "ctx": {"error": e.msg},
+                    }
+                ],
+                body=e.doc,
+                endpoint_ctx=endpoint_ctx,
+            )
+            raise validation_error from e
+        except HTTPException:
+            # If a middleware raises an HTTPException, it should be raised again
+            raise
+        except Exception as e:
+            http_error = HTTPException(
+                status_code=400, detail="There was an error parsing the body"
+            )
+            raise http_error from e
+
+        # Solve dependencies and run path operation function, auto-closing dependencies
+        errors: list[Any] = []
+        async_exit_stack = request.scope.get("fastapi_inner_astack")
+        assert isinstance(async_exit_stack, AsyncExitStack), (
+            "fastapi_inner_astack not found in request scope"
+        )
+        solved_result = await solve_dependencies(
+            request=request,
+            dependant=dependant,
+            body=body,
+            dependency_overrides_provider=dependency_overrides_provider,
+            async_exit_stack=async_exit_stack,
+            embed_body_fields=embed_body_fields,
+        )
+        errors = solved_result.errors
+        if not errors:
+>           raw_response = await run_endpoint_function(
+                dependant=dependant,
+                values=solved_result.values,
+                is_coroutine=is_coroutine,
+            )
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\routing.py:431:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    async def run_endpoint_function(
+        *, dependant: Dependant, values: dict[str, Any], is_coroutine: bool
+    ) -> Any:
+        # Only called by get_request_handler. Has been split into its own function to
+        # facilitate profiling endpoints, since inner functions are harder to profile.
+        assert dependant.call is not None, "dependant.call must be a function"
+
+        if is_coroutine:
+>           return await dependant.call(**values)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\routing.py:313:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+days = 30, profile = None
+
+    @app.get("/api/analytics/usage")
+    async def get_usage_analytics(
+        days: int = Query(30, ge=1, le=365),
+        profile: Optional[str] = None,
+    ):
+        """``days`` is clamped to 1-365 (idea from #74778): huge or non-positive
+        values would force expensive full-history SQL and InsightsEngine work, or
+        produce empty/inverted time windows. The UI only offers 7/30/90-day
+        presets."""
+>       return await asyncio.to_thread(_get_usage_analytics, days, profile)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+hermes_cli\web_server.py:16117:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+func = <function _get_usage_analytics at 0x000001E3BDC9F600>, args = (30, None)
+kwargs = {}, loop = <ProactorEventLoop running=True closed=False debug=False>
+ctx = <_contextvars.Context object at 0x000001E3BF77A380>
+func_call = functools.partial(<built-in method run of _contextvars.Context object at 0x000001E3BF77A380>, <function _get_usage_analytics at 0x000001E3BDC9F600>, 30, None)
+
+    async def to_thread(func, /, *args, **kwargs):
+        """Asynchronously run function *func* in a separate thread.
+
+        Any *args and **kwargs supplied for this function are directly passed
+        to *func*. Also, the current :class:`contextvars.Context` is propagated,
+        allowing context variables from the main thread to be accessed in the
+        separate thread.
+
+        Return a coroutine that can be awaited to get the eventual result of *func*.
+        """
+        loop = events.get_running_loop()
+        ctx = contextvars.copy_context()
+        func_call = functools.partial(ctx.run, func, *args, **kwargs)
+>       return await loop.run_in_executor(None, func_call)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\Users\khairul\AppData\Local\hermes\runtimes\python-3.11.9-signed\Lib\asyncio\threads.py:25:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = None
+
+    def run(self):
+        if not self.future.set_running_or_notify_cancel():
+            return
+
+        try:
+>           result = self.fn(*self.args, **self.kwargs)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\Users\khairul\AppData\Local\hermes\runtimes\python-3.11.9-signed\Lib\concurrent\futures\thread.py:58:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+days = 30, profile = None
+
+    def _get_usage_analytics(days: int = 30, profile: Optional[str] = None):
+        from agent.insights import InsightsEngine
+
+>       db = _open_session_db_for_profile(profile, read_only=True)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+hermes_cli\web_server.py:16039:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+profile = None
+
+    def _open_session_db_for_profile(profile: Optional[str], *, read_only: bool):
+        """Open a SessionDB with an explicit access mode for a profile.
+
+        ``profile`` None/empty selects this process's own ``state.db``. A named
+        profile opens that profile's on-disk store directly. Access-mode
+        semantics are documented on :func:`_open_session_db_at_path`.
+        """
+        from hermes_state import _default_db_path
+
+        if profile:
+            _name, home = _cron_profile_home(profile)
+            db_path = Path(home) / "state.db"
+        else:
+            db_path = Path(_default_db_path())
+>       return _open_session_db_at_path(db_path, read_only=read_only)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+hermes_cli\web_server.py:12703:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+db_path = WindowsPath('C:/Users/khairul/AppData/Local/Temp/hermes-pytest-tmproot-r_60prhp/pytest-of-unknown/pytest-0/test_in_range_days_accepted0/hermes_test/state.db')
+
+    def _open_session_db_at_path(db_path: Path, *, read_only: bool):
+        """Open a SessionDB at an explicit path with an explicit access mode.
+
+        Writable opens keep the full init and repair path. Read-only opens
+        bootstrap a missing or zero-byte store once, and heal an older or
+        malformed schema through one writable open before reopening read-only.
+        The healthy read path never takes a write lock or requests a checkpoint.
+
+        Scope of the heal: the probe checks every table/column declared in
+        SCHEMA_SQL (see ``schema_read_probe_statements``), so ANY schema
+        addition escalates a stale store to a one-time writable open — the same
+        reconcile the store's own backend runs at startup. Tables created
+        outside SCHEMA_SQL (telemetry ``tel_*``, FTS shadow tables) are
+        deliberately outside both the probe and the heal.
+        """
+        import sqlite3
+
+        from hermes_state import SessionDB, is_malformed_schema_error
+
+        if not read_only:
+            return SessionDB(db_path=db_path, read_only=False)
+
+        def _needs_bootstrap() -> bool:
+            try:
+                return db_path.stat().st_size == 0
+            except FileNotFoundError:
+                return True
+            except OSError:
+                return False
+
+        if _needs_bootstrap():
+            with _session_db_bootstrap_lock:
+                if _needs_bootstrap():
+>                   SessionDB(db_path=db_path, read_only=False).close()
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+hermes_cli\web_server.py:12635:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <hermes_state.SessionDB object at 0x000001E3BFB12DD0>
+db_path = WindowsPath('C:/Users/khairul/AppData/Local/Temp/hermes-pytest-tmproot-r_60prhp/pytest-of-unknown/pytest-0/test_in_range_days_accepted0/hermes_test/state.db')
+read_only = False
+
+    def __init__(self, db_path: Path = None, read_only: bool = False):
+        self.db_path = db_path or _default_db_path()
+        # Fail hard (before any connection/pragma/mkdir) if a pytest-context
+        # process resolved the developer's production state.db — see the
+        # live-DB test-isolation guard block near _default_db_path().
+        _ensure_test_isolation(self.db_path)
+        self.read_only = read_only
+
+        self._lock = threading.Lock()
+        # Read-path split (WAL only): recall/browse queries borrow a
+        # read-only connection from a bounded pool so they never queue
+        # behind writer flushes on self._lock. See _read_ctx().
+        #
+        # The pool is BOUNDED because the previous per-thread
+        # (threading.local + strong set) scheme pinned one connection per
+        # (SessionDB x thread) for the life of the process. Starlette
+        # dispatches sync routes on anyio worker threads, so a SessionDB
+        # that is never closed accumulated a connection — and two fds, the
+        # database and its -wal — for every worker thread that ever read,
+        # until the process hit the 256 soft RLIMIT_NOFILE a service manager
+        # hands it and every request failed with EMFILE while the process
+        # stayed alive, so the supervisor's restart-on-exit never fired.
+        # Same bug class as the closing(...) fix in gateway/readiness.py
+        # (#69678 / #69567).
+        self._read_pool: "queue.LifoQueue[sqlite3.Connection]" = queue.LifoQueue(
+            maxsize=_READ_POOL_MAX
+        )
+        # One permit per live read connection, held from before the open in
+        # _get_read_conn() until after the close in _close_read_conn().  This
+        # is what bounds PEAK descriptors; _read_pool alone bounds only the
+        # idle set.  See _READ_POOL_MAX.  Acquired non-blocking on purpose: a
+        # reader that cannot get a permit must degrade to the writer lock, not
+        # queue here — blocking would convert fd exhaustion into a stall, which
+        # is the same outage with a different stack trace.
+        #
+        # Permits are shared per DATABASE PATH, not per instance: the
+        # descriptors they ration belong to the file, and one process holds
+        # several SessionDB objects on the same state.db (#98573). See
+        # _PathReadBudget.
+        self._read_budget = _read_budget_for(self.db_path)
+        self._read_budget.register(self)
+        # Bound to the semaphore itself so every release site
+        # (_close_read_conn and the _get_read_conn failure paths) is unchanged.
+        self._read_permits = self._read_budget.permits
+        # Count of reads that found no permit and fell back to the locked
+        # writer connection. Not load-bearing; it is the only externally
+        # visible signal that the ceiling is actually being reached, so a
+        # too-small _READ_POOL_MAX is diagnosable from a running process
+        # instead of inferred from latency.
+        self._read_permit_exhausted = 0
+        self._read_conns_lock = threading.Lock()
+        # Set when close() begins.  _read_ctx checks this under the lock
+        # before returning a connection to the pool, so a reader still in
+        # flight during the drain closes its own connection instead of
+        # re-populating a pool nobody will drain again.
+        self._read_conns_closed = False
+        self._usage_snapshot_local = threading.local()
+        # "read-only opens are failing against this file" backoff stamp.
+        # Instance-wide rather than per-thread: with a shared pool the open
+        # is no longer a per-thread event, and retrying a known-bad open on
+        # every query is a syscall storm for no benefit. The locked writer
+        # connection still serves reads while the backoff holds.
+        # Deliberately a TIMESTAMP, not a sticky bool: the likeliest trigger
+        # is transient fd pressure (EMFILE) — the very condition this pool
+        # exists to prevent — and a permanent flag would demote every reader
+        # on this instance to the writer lock for the life of the process.
+        # The gateway shares one SessionDB across every agent, so that turns
+        # a momentary blip into a permanent global convoy. Expires after
+        # _READ_OPEN_RETRY_SECONDS so the read path self-heals.
+        self._read_open_failed_at = 0.0
+        self._wal_active = False
+        self._write_count = 0
+        # File identity of the state.db this instance opened. Compared on
+        # every write (and before FTS fail-open / reopen-after-close) so an
+        # out-of-band replace cannot limp through in-place surgery.
+        # Inode catches mv/new-file; application_id catches cp onto the
+        # same path (same inode, truncate+rewrite).
+        self._db_file_identity: Optional[tuple] = None
+        self._db_file_application_id: int = 0
+        self._db_file_generation_token: str = ""
+        self._db_replaced = False
+        # Sticky: set once a write on THIS handle reports bare SQLITE_CORRUPT /
+        # NOTADB that is not FTS-scoped and not a replaced-file case. Never
+        # cleared; the recovery boundary is a process restart on a repaired or
+        # restored file (see StateDbCorruptError).
+        self._db_corrupt = False
+        self._db_corrupt_reason = ""
+        self._db_sidecar_identity: Dict[str, tuple] = {}
+        self._db_wal_generation_lost = False
+        # One-shot guard for the usermerge-floor config write on the
+        # incremental FTS merge cadence (see _merge_fts_incrementally).
+        self._fts_usermerge_floor_applied = False
+        self._fts_enabled = False
+        self._fts_stale = False
+        self._trigram_available = False
+        # CJK-bigram index (cjk_unicode61 loadable tokenizer). _fts_cjk_loaded:
+        # extension present on the writer connection; _fts_cjk_available: the
+        # messages_fts_cjk table is queryable AND not marked stale. Set during
+        # _init_schema / _probe_fts_cjk.
+        self._fts_cjk_loaded = False
+        self._fts_cjk_available = False
+        self._fts_unavailable_warned = False
+        self._conn = None
+        # Async token accounting (see queue_token_counts). The condition
+        # guards queue + writer state; it is distinct from self._lock so
+        # enqueue/flush bookkeeping never contends with SQLite writes.
+        self._token_queue: deque = deque()
+        self._token_queue_cond = threading.Condition(threading.Lock())
+        self._token_writer_thread: Optional[threading.Thread] = None
+        self._token_writer_stop = False
+        self._token_writer_busy = False
+        self._token_writer_error: Optional[BaseException] = None
+        self._token_atexit_hook: Optional[Callable[[], None]] = None
+        # Set True when this instance is opened via get_shared_session_db().
+        # Makes close() a no-op so the registry (not individual callers)
+        # controls the connection lifecycle (#90837).
+        self._shared_registry_owned = False
+        initialization_complete = False
+        try:
+            if read_only:
+                # Read-only attach for cross-profile aggregation: SELECT-only,
+                # so we skip schema init entirely (no DDL, no FTS probe, no
+                # column reconcile). Crucially this takes NO write lock, so
+                # polling another profile's live DB on every sidebar refresh
+                # never contends with that profile's running backend. The DB
+                # must already exist + be initialised (callers guard on
+                # db_path.exists()); a SELECT against an empty file raises and
+                # the caller degrades per-profile.
+                open_attempt = 0
+                while True:
+                    try:
+                        self._conn = _connect_tracked_db(
+                            f"file:{self.db_path}?mode=ro",
+                            tracking_path=self.db_path,
+                            uri=True,
+                            check_same_thread=False,
+                            timeout=1.0,
+                            isolation_level=None,
+                        )
+                        self._conn.row_factory = sqlite3.Row
+                        # FTS capability flags normally come from writable schema
+                        # initialisation. Probe existing virtual tables with
+                        # SELECTs only so read-only search keeps its FTS and
+                        # trigram paths. Close the connection on ANY probe
+                        # failure (e.g. malformed schema raises DatabaseError,
+                        # not the OperationalError the probe handles). The
+                        # constructor's outer finally also covers failures
+                        # before this probe and BaseException paths, so a
+                        # leaked tracked connection cannot block
+                        # _backup_db_file's raw-copy for the rest of the
+                        # process — the writable heal that follows would then
+                        # repair WITHOUT its forensic backup.
+                        try:
+                            apply_database_pragmas(self._conn, db_label="state.db")
+                            cursor = self._conn.cursor()
+                            self._fts_enabled = (
+                                self._fts_table_probe(cursor, "messages_fts")
+                                is True
+                            )
+                            if self._fts_enabled:
+                                self._trigram_available = (
+                                    self._fts_table_probe(
+                                        cursor,
+                                        "messages_fts_trigram",
+                                    )
+                                    is True
+                                )
+                        except BaseException:
+                            conn, self._conn = self._conn, None
+                            try:
+                                conn.close()
+                            except Exception:
+                                pass
+                            raise
+                        break
+                    except sqlite3.OperationalError as ioerr:
+                        # A WAL checkpoint / reset / frame-flush in flight on
+                        # the writer side can surface SQLITE_IOERR to a
+                        # concurrent mode=ro reader (it cannot perform the
+                        # recovery the read needs — recovery writes the -shm
+                        # index, which mode=ro refuses). The transition closes
+                        # in milliseconds, so retry a bounded number of times
+                        # before classifying the store as failed (#100436).
+                        if not _is_transient_read_only_ioerr(
+                            ioerr, attempt=open_attempt
+                        ):
+                            raise
+                        open_attempt += 1
+                        time.sleep(_READ_ONLY_IOERR_RETRY_BACKOFF_S)
+                self._record_db_file_identity()
+                initialization_complete = True
+                return
+
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Read-only file/sidecar preflight (port of kilocode#12508):
+            # repair-or-refuse BEFORE the first connection so users get an
+            # actionable message instead of an opaque "attempt to write a
+            # readonly database" from deep inside _init_schema.
+            if not read_only:
+                preflight_db_writability(self.db_path, db_label="state.db")
+
+            # #68474 / #97568: Serialize startup across zero-byte check, quarantine,
+            # connect, and schema commit so concurrent openers don't race on an
+            # absent-path -> connect -> schema-commit window.
+            needs_startup_guard = (
+                not read_only
+                and (
+                    not self.db_path.exists()
+                    or is_zeroed_state_db(self.db_path)
+                )
+            )
+
+            def _handle_quarantine_if_zeroed(already_locked: bool = False):
+                if (
+                    self.db_path.exists()
+                    and is_zeroed_state_db(self.db_path)
+                ):
+                    try:
+                        zsize = self.db_path.stat().st_size
+                    except OSError:
+                        zsize = -1
+                    qpath = quarantine_zeroed_state_db(
+                        self.db_path, already_locked=already_locked
+                    )
+                    snaps = self.db_path.parent / "state-snapshots"
+                    msg = (
+                        f"state.db looks ZEROED ({zsize} bytes, no SQLite header). "
+                        f"Preserved at {qpath or '(quarantine failed — file left in place)'}. "
+                        f"Restore from {snaps} via `hermes snapshot list` / "
+                        f"`hermes snapshot restore <id>` if available. "
+                        "Opening a fresh empty database so the agent can start."
+                    )
+                    logger.error(msg)
+                    _set_last_init_error(msg)
+                    # If quarantine failed, do not open the zeroed file (would fail
+                    # opaquely or risk further damage). Raise with the clear message.
+                    if qpath is None and self.db_path.exists() and is_zeroed_state_db(self.db_path):
+                        raise sqlite3.DatabaseError(msg)
+
+            def _connect_and_init():
+                # Refuse before sqlite3.connect (under the startup lock) so we
+                # cannot mint a replacement WAL while a live writer still
+                # holds a deleted sidecar inode.
+                refuse_deleted_wal_generation(self.db_path)
+                self._conn = _connect_tracked_db(
+                    str(self.db_path),
+                    check_same_thread=False,
+                    # Short timeout — application-level retry with random
+                    # jitter handles contention instead of sitting in
+                    # SQLite's internal busy handler for up to 30s.
+                    timeout=1.0,
+                    # auto-starts transactions on DML, which conflicts with
+                    # our explicit BEGIN IMMEDIATE.  None = we manage
+                    # transactions ourselves.
+                    isolation_level=None,
+                )
+                self._conn.row_factory = sqlite3.Row
+                self._wal_active = (
+                    apply_wal_with_fallback(self._conn, db_label="state.db") == "wal"
+                )
+                apply_database_pragmas(self._conn, db_label="state.db")
+                self._conn.execute("PRAGMA foreign_keys=ON")
+                self._fts_cjk_loaded = load_fts5_cjk_extension(self._conn)
+                self._init_schema()
+
+            def _connect_and_init_with_lock_patience():
+                # Lock contention during open: _init_schema's DDL/reconcile
+                # statements run on a 1s-timeout connection with no retry, so
+                # a sibling process holding the write lock (VACUUM, TRUNCATE
+                # checkpoint at close, a long FTS pass from an older
+                # still-running install) used to fail the ENTIRE open —
+                # callers then disable persistence for the whole run
+                # ("Failed to initialize SessionDB ... database is locked",
+                # #74478). The store is healthy; wait it out with the same
+                # jittered patience the write path uses. Non-lock errors
+                # (including the malformed class) propagate immediately.
+                deadline = time.monotonic() + self._WRITE_PATIENCE_S
+                while True:
+                    try:
+                        _connect_and_init()
+                        return
+                    except sqlite3.OperationalError as exc:
+                        err = str(exc).lower()
+                        if "locked" not in err and "busy" not in err:
+                            raise
+                        try:
+                            if self._conn is not None:
+                                self._conn.close()
+                        except Exception:
+                            pass
+                        now = time.monotonic()
+                        if now >= deadline:
+                            raise
+                        time.sleep(
+                            min(
+                                random.uniform(
+                                    self._WRITE_RETRY_SLOW_MIN_S,
+                                    self._WRITE_RETRY_SLOW_MAX_S,
+                                ),
+                                max(deadline - now, 0.001),
+                            )
+                        )
+
+            def _open_with_optional_startup_guard():
+                if needs_startup_guard:
+                    with quarantine_cross_process_lock(self.db_path) as lock_acquired:
+                        if not lock_acquired:
+                            logger.warning(
+                                "startup quarantine lock for %s not acquired within 5s; proceeding",
+                                self.db_path,
+                            )
+                        _handle_quarantine_if_zeroed(already_locked=lock_acquired)
+                        _connect_and_init_with_lock_patience()
+                else:
+                    _handle_quarantine_if_zeroed(already_locked=False)
+                    _connect_and_init_with_lock_patience()
+
+            try:
+>               _open_with_optional_startup_guard()
+
+hermes_state.py:5687:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    def _open_with_optional_startup_guard():
+        if needs_startup_guard:
+            with quarantine_cross_process_lock(self.db_path) as lock_acquired:
+                if not lock_acquired:
+                    logger.warning(
+                        "startup quarantine lock for %s not acquired within 5s; proceeding",
+                        self.db_path,
+                    )
+                _handle_quarantine_if_zeroed(already_locked=lock_acquired)
+                _connect_and_init_with_lock_patience()
+        else:
+            _handle_quarantine_if_zeroed(already_locked=False)
+>           _connect_and_init_with_lock_patience()
+
+hermes_state.py:5684:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    def _connect_and_init_with_lock_patience():
+        # Lock contention during open: _init_schema's DDL/reconcile
+        # statements run on a 1s-timeout connection with no retry, so
+        # a sibling process holding the write lock (VACUUM, TRUNCATE
+        # checkpoint at close, a long FTS pass from an older
+        # still-running install) used to fail the ENTIRE open —
+        # callers then disable persistence for the whole run
+        # ("Failed to initialize SessionDB ... database is locked",
+        # #74478). The store is healthy; wait it out with the same
+        # jittered patience the write path uses. Non-lock errors
+        # (including the malformed class) propagate immediately.
+        deadline = time.monotonic() + self._WRITE_PATIENCE_S
+        while True:
+            try:
+>               _connect_and_init()
+
+hermes_state.py:5648:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    def _connect_and_init():
+        # Refuse before sqlite3.connect (under the startup lock) so we
+        # cannot mint a replacement WAL while a live writer still
+        # holds a deleted sidecar inode.
+        refuse_deleted_wal_generation(self.db_path)
+        self._conn = _connect_tracked_db(
+            str(self.db_path),
+            check_same_thread=False,
+            # Short timeout — application-level retry with random
+            # jitter handles contention instead of sitting in
+            # SQLite's internal busy handler for up to 30s.
+            timeout=1.0,
+            # auto-starts transactions on DML, which conflicts with
+            # our explicit BEGIN IMMEDIATE.  None = we manage
+            # transactions ourselves.
+            isolation_level=None,
+        )
+        self._conn.row_factory = sqlite3.Row
+        self._wal_active = (
+            apply_wal_with_fallback(self._conn, db_label="state.db") == "wal"
+        )
+        apply_database_pragmas(self._conn, db_label="state.db")
+        self._conn.execute("PRAGMA foreign_keys=ON")
+        self._fts_cjk_loaded = load_fts5_cjk_extension(self._conn)
+>       self._init_schema()
+
+hermes_state.py:5632:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <hermes_state.SessionDB object at 0x000001E3BFB12DD0>
+
+    def _init_schema(self):
+        """Create tables and FTS if they don't exist, reconcile columns.
+
+        Schema management follows the declarative reconciliation pattern
+        (Beets, sqlite-utils): SCHEMA_SQL is the single source of truth.
+        On existing databases, _reconcile_columns() diffs live columns
+        against SCHEMA_SQL and ADDs any missing ones.  This eliminates
+        the version-gated migration chain for column additions, making
+        it impossible for reordered or inserted migrations to skip columns.
+
+        The schema_version table is retained for future data migrations
+        (transforming existing rows) which cannot be handled declaratively.
+        """
+        # Declare a startup-watchdog progress lease before potentially long
+        # synchronous work: on multi-GB state.db files the reconciliation +
+        # version-gated data migrations below are legitimately slow and can
+        # be I/O-bound (near-zero CPU), which the watchdog's CPU fallback
+        # would misread as a parked deadlock (OOF-298 / PR #89750).
+        # Single lease is deliberate: this is the one pre-loop phase that can
+        # legitimately exceed the 300s default deadline (multi-GB DBs), and
+        # the lease is clamped to _MAX_LEASE_S=900. Honest worst case: a
+        # genuinely wedged DB init delays supervisor respawn by up to the
+        # lease duration. Per-chunk renewal would shrink that, but adds
+        # complexity to the migration loops for a rare failure mode.
+        report_startup_progress(600.0, phase="state_db_init_schema")
+
+        cursor = self._conn.cursor()
+
+        self._usage_epoch_init_checkpoint("before_schema_ddl")
+        baseline_table_preexisting = cursor.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+            "AND name = 'session_usage_reconciliation_baseline'"
+        ).fetchone() is not None
+        baseline_shell_is_canonical_empty = (
+            baseline_table_preexisting
+            and self._trusted_baseline_shell_is_canonical_empty(cursor)
+        )
+
+        cursor.executescript(SCHEMA_SQL)
+        self._usage_epoch_init_checkpoint("after_schema_tables")
+
+        # ── Declarative column reconciliation ──────────────────────────
+        # Diff live tables against SCHEMA_SQL and ADD any missing columns.
+        # This is idempotent and self-healing: even if a version-gated
+        # migration was skipped (e.g. due to version renumbering), the
+        # column gets created here.
+        self._reconcile_columns(cursor)
+
+        # Rebuild gateway_routing if it still carries the pre-scope PRIMARY
+        # KEY (session_key alone). ADD COLUMN cannot fix a PK, so this is
+        # the one table-shape repair reconciliation can't express.
+        self._heal_gateway_routing_pk(cursor)
+
+        # Rebuild session_model_usage if its PRIMARY KEY lacks the ``task``
+        # column (5-column PK on installs already at v22+ when the column
+        # landed — the version-gated rebuild is unreachable there, #73823).
+        # Same PK-rebuild constraint as gateway_routing above.
+        self._heal_session_model_usage_pk(cursor)
+
+        # Indexes that reference reconciler-added columns must be created
+        # AFTER _reconcile_columns runs — declaring them in SCHEMA_SQL
+        # makes the initial executescript fail on legacy DBs (the index's
+        # WHERE clause references a column that doesn't exist yet).
+        try:
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_messages_platform_msg_id "
+                "ON messages(session_id, platform_message_id) "
+                "WHERE platform_message_id IS NOT NULL"
+            )
+        except sqlite3.OperationalError as exc:
+            logger.debug("idx_messages_platform_msg_id create skipped: %s", exc)
+
+        # Deferred indexes that reference the reconciler-added ``active``
+        # column (idx_messages_session_active) — same ordering constraint.
+        cursor.executescript(DEFERRED_INDEX_SQL)
+        self._usage_epoch_init_checkpoint("after_schema_indexes")
+
+        schema_version_row_preexisting = cursor.execute(
+            "SELECT 1 FROM schema_version LIMIT 1"
+        ).fetchone() is not None
+
+        # Establish the trusted v2 cutover only after both detail and baseline
+        # schemas are valid. BEGIN IMMEDIATE serializes the complete aggregate
+        # snapshot, detail high-water, and marker commit against every writer.
+>       self._ensure_usage_detail_activation(
+            cursor,
+            baseline_table_preexisting=baseline_table_preexisting,
+            baseline_shell_is_canonical_empty=baseline_shell_is_canonical_empty,
+        )
+
+hermes_state_schema.py:1705:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <hermes_state.SessionDB object at 0x000001E3BFB12DD0>
+cursor = <sqlite3.Cursor object at 0x000001E3BE645440>
+
+    def _ensure_usage_detail_activation(
+        self,
+        cursor,
+        *,
+        baseline_table_preexisting: bool,
+        baseline_shell_is_canonical_empty: bool,
+    ) -> None:
+        """Atomically establish or validate the trusted accounting cutover.
+
+        ``BEGIN IMMEDIATE`` is the cutover authority.  A usage writer either
+        commits before this transaction and is wholly captured by the full
+        aggregate baseline/event high-water, or commits afterwards and lands
+        beyond both.  Existing v1 detail is never subtracted from aggregate.
+        """
+        route_fields = SESSION_USAGE_RECONCILIATION_ROUTE_FIELDS
+        metric_fields = SESSION_USAGE_RECONCILIATION_METRIC_FIELDS
+        baseline_fields = (*route_fields, *metric_fields)
+        baseline_projection = ", ".join(baseline_fields)
+        conn = cursor.connection
+        cursor.execute("BEGIN IMMEDIATE")
+        activated = False
+        try:
+            trusted_row = cursor.execute(
+                "SELECT value FROM state_meta WHERE key = ?",
+                (SESSION_USAGE_RECONCILIATION_KEY,),
+            ).fetchone()
+            epoch_row = cursor.execute(
+                "SELECT value FROM state_meta WHERE key = ?",
+                (SESSION_USAGE_RECONCILIATION_EPOCH_KEY,),
+            ).fetchone()
+            schema_epoch_generation = self._schema_trusted_epoch_generation(
+                cursor
+            )
+
+            epoch_table_preexisting = cursor.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                (SESSION_USAGE_TRUSTED_EPOCH_TABLE,),
+            ).fetchone() is not None
+            epoch_identity = None
+            if epoch_table_preexisting:
+                epoch_rows = cursor.execute(
+                    f"SELECT singleton, generation, epoch_id, activated_at "
+                    f"FROM {SESSION_USAGE_TRUSTED_EPOCH_TABLE}"
+                ).fetchall()
+                if len(epoch_rows) != 1:
+                    raise RuntimeError(
+                        "damaged trusted session usage cutover epoch identity"
+                    )
+                try:
+                    epoch_identity = parse_session_usage_trusted_epoch(
+                        epoch_rows[0]
+                    )
+                except ValueError as exc:
+                    raise RuntimeError(
+                        "invalid trusted session usage cutover epoch identity"
+                    ) from exc
+
+            marker = None
+            baseline_rows = None
+            if trusted_row is not None:
+                try:
+                    marker = parse_session_usage_reconciliation_marker(
+                        trusted_row[0]
+                    )
+                    baseline_rows = cursor.execute(
+                        f"SELECT {baseline_projection} "
+                        "FROM session_usage_reconciliation_baseline"
+                    ).fetchall()
+                    baseline_digest = (
+                        session_usage_reconciliation_baseline_digest(
+                            baseline_rows
+                        )
+                    )
+                except ValueError as exc:
+                    raise RuntimeError(
+                        "invalid trusted session usage cutover state"
+                    ) from exc
+                if (
+                    not baseline_table_preexisting
+                    or len(baseline_rows) != marker["baseline_row_count"]
+                    or baseline_digest != marker["baseline_sha256"]
+                ):
+>                   raise RuntimeError(
+                        "incomplete trusted session usage cutover baseline"
+                    )
+E                   RuntimeError: incomplete trusted session usage cutover baseline
+
+hermes_state_schema.py:1385: RuntimeError
+============================== warnings summary ===============================
+..\..\..\..\..\..\..\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\testclient.py:1
+  C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/hermes_cli/test_stage4a_bootstrap_diagnostic.py::TestAnalyticsDaysClamps::test_in_range_days_accepted
+=================== 1 failed, 8 passed, 1 warning in 6.41s ====================
+
+=== 1 file with test failures (1 test failed) ===
+  tests\hermes_cli\test_stage4a_bootstrap_diagnostic.py  (1 test failed)

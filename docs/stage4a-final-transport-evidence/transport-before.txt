@@ -1,0 +1,427 @@
+▶ no local venv — using Nix dev venv via HERMES_PYTHON: C:/Users/khairul/Projects/hermes-agent-forge-runtime/.venv/Scripts/python.exe
+▶ running per-file parallel test suite via run_tests_parallel.py
+  (TZ=UTC LANG=C.UTF-8 PYTHONHASHSEED=0; clean env)
+▶ pre-compiling bytecode cache
+▶ launching test runner
+Discovered 1 test files (~3 tests) under ['tests\\hermes_cli\\test_stage4a_transport.py']; running with -j 1
+[100.0% |     3/~3 | ✓ 2 | ✗27] ✗ tests\hermes_cli\test_stage4a_transport.py (2✓ 27✗, 18.8s)
+
+  ╔╍ Failed: tests\hermes_cli\test_stage4a_transport.py ╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍
+  ║ -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+  ║ =========================== short test summary info ===========================
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[marker_only]
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[baseline_only]
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[high_water_only]
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[integrity_binding_only]
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[one_baseline_route]
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[multiple_baseline_routes]
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[marker_and_high_water]
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[marker_and_integrity_binding]
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[baseline_and_marker]
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[altered_baseline_value]
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[altered_high_water]
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[altered_integrity_hash]
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[baseline_table_recreated_empty]
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[epoch_row_missing]
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[epoch_table_missing]
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[altered_generation_number]
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[active_schema_shell_missing_state]
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[inconsistent_generation_integrity]
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[all_epoch_and_cutover_artifacts_removed]
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[schema_generation_mismatch]
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[complete_ordinary_erasure]
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[malformed_marker]
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[malformed_baseline]
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[malformed_epoch_schema]
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[missing_detail_table]
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[inconsistent_cutover]
+  ║ FAILED tests/hermes_cli/test_stage4a_transport.py::test_accounting_sync_failure_has_distinct_reason
+  ║ 27 failed, 2 passed, 1 warning in 16.34s
+  ║
+  ║  Repro: python -m pytest tests\hermes_cli\test_stage4a_transport.py -q --tb=short
+  ╚╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍
+
+
+=== Summary: 1 files, 2 tests passed, 27 failed (100% complete) in 18.8s (1 workers) ===
+  Durations cached to test_durations.json (1 files)
+
+=== Per-file subprocess time distribution ===
+  Files:   1
+  Total subprocess CPU-wall: 18.8s  (runner wall: 18.8s, parallelism: 1x)
+  P50: 18.83s  P90: 18.83s  P95: 18.83s  P99: 18.83s  Max: 18.83s
+  <1s: 0 files (0%)  <2s: 0 files (0%)
+  Top 10 slowest:
+     18.83s  tests\hermes_cli\test_stage4a_transport.py
+
+=== Failure output ===
+
+--- tests\hermes_cli\test_stage4a_transport.py ---
+FFFFFFFFFFFFFFFFFFFFFFFFFFF..                                            [100%]
+================================== FAILURES ===================================
+_______ test_damaged_active_transport_is_503_and_immutable[marker_only] _______
+tests\hermes_cli\test_stage4a_transport.py:60: in test_damaged_active_transport_is_503_and_immutable
+    assert response.status_code == 503, response.text
+E   AssertionError: {"capability":"session.usage.detail.v1","session_id":"s","scope":"physical","session_ids":["s"],"window":{"start":null,"end":null,"effective_start":null,"effective_end":1788562779.3806844,"start_inclusive":true,"end_exclusive":true,"end_omitted_means":"through_current_persisted_usage"},"coverage":{"status":"UNAVAILABLE","reason":"coverage_start_unknown","detail_started_at":null,"exact_start":null,"exact_end":null},"events":[],"events_truncated":false,"event_limit":100,"routes":[],"routes_truncated":false,"totals":null,"profile":"default"}
+E   assert 200 == 503
+E    +  where 200 = <Response [200 OK]>.status_code
+----------------------------- Captured log setup ------------------------------
+INFO     hermes_cli.web_server:web_server.py:19406 Mounted plugin API routes: /api/plugins/hermes-achievements/
+INFO     hermes_cli.web_server:web_server.py:19406 Mounted plugin API routes: /api/plugins/kanban/
+------------------------------ Captured log call ------------------------------
+WARNING  hermes_state:hermes_state.py:1864 state.db: linked SQLite 3.45.1 (interpreter C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Scripts\python.exe) is vulnerable to the WAL-reset corruption bug (https://sqlite.org/wal.html#walresetbug) — using journal_mode=DELETE instead of enabling WAL. Upgrade to SQLite 3.51.3+ (or backports 3.50.7 / 3.44.6); Hermes-managed installs can repair the embedded runtime with `hermes update`. See `hermes doctor`. This warning fires once per process per database.
+______ test_damaged_active_transport_is_503_and_immutable[baseline_only] ______
+tests\hermes_cli\test_stage4a_transport.py:60: in test_damaged_active_transport_is_503_and_immutable
+    assert response.status_code == 503, response.text
+E   AssertionError: {"capability":"session.usage.detail.v1","session_id":"s","scope":"physical","session_ids":["s"],"window":{"start":null,"end":null,"effective_start":null,"effective_end":1788562780.0987942,"start_inclusive":true,"end_exclusive":true,"end_omitted_means":"through_current_persisted_usage"},"coverage":{"status":"UNAVAILABLE","reason":"trusted_cutover_baseline_incomplete","detail_started_at":null,"exact_start":null,"exact_end":null},"events":[],"events_truncated":false,"event_limit":100,"routes":[],"routes_truncated":false,"totals":null,"profile":"default"}
+E   assert 200 == 503
+E    +  where 200 = <Response [200 OK]>.status_code
+_____ test_damaged_active_transport_is_503_and_immutable[high_water_only] _____
+tests\hermes_cli\test_stage4a_transport.py:60: in test_damaged_active_transport_is_503_and_immutable
+    assert response.status_code == 503, response.text
+E   AssertionError: {"capability":"session.usage.detail.v1","session_id":"s","scope":"physical","session_ids":["s"],"window":{"start":null,"end":null,"effective_start":null,"effective_end":1788562780.6179926,"start_inclusive":true,"end_exclusive":true,"end_omitted_means":"through_current_persisted_usage"},"coverage":{"status":"UNAVAILABLE","reason":"coverage_start_invalid","detail_started_at":null,"exact_start":null,"exact_end":null},"events":[],"events_truncated":false,"event_limit":100,"routes":[],"routes_truncated":false,"totals":null,"profile":"default"}
+E   assert 200 == 503
+E    +  where 200 = <Response [200 OK]>.status_code
+_ test_damaged_active_transport_is_503_and_immutable[integrity_binding_only] __
+tests\hermes_cli\test_stage4a_transport.py:60: in test_damaged_active_transport_is_503_and_immutable
+    assert response.status_code == 503, response.text
+E   AssertionError: {"capability":"session.usage.detail.v1","session_id":"s","scope":"physical","session_ids":["s"],"window":{"start":null,"end":null,"effective_start":null,"effective_end":1788562781.135706,"start_inclusive":true,"end_exclusive":true,"end_omitted_means":"through_current_persisted_usage"},"coverage":{"status":"UNAVAILABLE","reason":"coverage_start_invalid","detail_started_at":null,"exact_start":null,"exact_end":null},"events":[],"events_truncated":false,"event_limit":100,"routes":[],"routes_truncated":false,"totals":null,"profile":"default"}
+E   assert 200 == 503
+E    +  where 200 = <Response [200 OK]>.status_code
+___ test_damaged_active_transport_is_503_and_immutable[one_baseline_route] ____
+tests\hermes_cli\test_stage4a_transport.py:60: in test_damaged_active_transport_is_503_and_immutable
+    assert response.status_code == 503, response.text
+E   AssertionError: {"capability":"session.usage.detail.v1","session_id":"s","scope":"physical","session_ids":["s"],"window":{"start":null,"end":null,"effective_start":null,"effective_end":1788562781.648486,"start_inclusive":true,"end_exclusive":true,"end_omitted_means":"through_current_persisted_usage"},"coverage":{"status":"UNAVAILABLE","reason":"trusted_cutover_baseline_incomplete","detail_started_at":null,"exact_start":null,"exact_end":null},"events":[],"events_truncated":false,"event_limit":100,"routes":[],"routes_truncated":false,"totals":null,"profile":"default"}
+E   assert 200 == 503
+E    +  where 200 = <Response [200 OK]>.status_code
+_ test_damaged_active_transport_is_503_and_immutable[multiple_baseline_routes] _
+tests\hermes_cli\test_stage4a_transport.py:60: in test_damaged_active_transport_is_503_and_immutable
+    assert response.status_code == 503, response.text
+E   AssertionError: {"capability":"session.usage.detail.v1","session_id":"s","scope":"physical","session_ids":["s"],"window":{"start":null,"end":null,"effective_start":null,"effective_end":1788562782.1803901,"start_inclusive":true,"end_exclusive":true,"end_omitted_means":"through_current_persisted_usage"},"coverage":{"status":"UNAVAILABLE","reason":"trusted_cutover_baseline_incomplete","detail_started_at":null,"exact_start":null,"exact_end":null},"events":[],"events_truncated":false,"event_limit":100,"routes":[],"routes_truncated":false,"totals":null,"profile":"default"}
+E   assert 200 == 503
+E    +  where 200 = <Response [200 OK]>.status_code
+__ test_damaged_active_transport_is_503_and_immutable[marker_and_high_water] __
+tests\hermes_cli\test_stage4a_transport.py:60: in test_damaged_active_transport_is_503_and_immutable
+    assert response.status_code == 503, response.text
+E   AssertionError: {"capability":"session.usage.detail.v1","session_id":"s","scope":"physical","session_ids":["s"],"window":{"start":null,"end":null,"effective_start":null,"effective_end":1788562782.700737,"start_inclusive":true,"end_exclusive":true,"end_omitted_means":"through_current_persisted_usage"},"coverage":{"status":"UNAVAILABLE","reason":"coverage_start_unknown","detail_started_at":null,"exact_start":null,"exact_end":null},"events":[],"events_truncated":false,"event_limit":100,"routes":[],"routes_truncated":false,"totals":null,"profile":"default"}
+E   assert 200 == 503
+E    +  where 200 = <Response [200 OK]>.status_code
+_ test_damaged_active_transport_is_503_and_immutable[marker_and_integrity_binding] _
+tests\hermes_cli\test_stage4a_transport.py:60: in test_damaged_active_transport_is_503_and_immutable
+    assert response.status_code == 503, response.text
+E   AssertionError: {"capability":"session.usage.detail.v1","session_id":"s","scope":"physical","session_ids":["s"],"window":{"start":null,"end":null,"effective_start":null,"effective_end":1788562783.2189732,"start_inclusive":true,"end_exclusive":true,"end_omitted_means":"through_current_persisted_usage"},"coverage":{"status":"UNAVAILABLE","reason":"coverage_start_unknown","detail_started_at":null,"exact_start":null,"exact_end":null},"events":[],"events_truncated":false,"event_limit":100,"routes":[],"routes_truncated":false,"totals":null,"profile":"default"}
+E   assert 200 == 503
+E    +  where 200 = <Response [200 OK]>.status_code
+___ test_damaged_active_transport_is_503_and_immutable[baseline_and_marker] ___
+tests\hermes_cli\test_stage4a_transport.py:60: in test_damaged_active_transport_is_503_and_immutable
+    assert response.status_code == 503, response.text
+E   AssertionError: {"capability":"session.usage.detail.v1","session_id":"s","scope":"physical","session_ids":["s"],"window":{"start":null,"end":null,"effective_start":null,"effective_end":1788562783.7354603,"start_inclusive":true,"end_exclusive":true,"end_omitted_means":"through_current_persisted_usage"},"coverage":{"status":"UNAVAILABLE","reason":"coverage_start_unknown","detail_started_at":null,"exact_start":null,"exact_end":null},"events":[],"events_truncated":false,"event_limit":100,"routes":[],"routes_truncated":false,"totals":null,"profile":"default"}
+E   assert 200 == 503
+E    +  where 200 = <Response [200 OK]>.status_code
+_ test_damaged_active_transport_is_503_and_immutable[altered_baseline_value] __
+tests\hermes_cli\test_stage4a_transport.py:60: in test_damaged_active_transport_is_503_and_immutable
+    assert response.status_code == 503, response.text
+E   AssertionError: {"capability":"session.usage.detail.v1","session_id":"s","scope":"physical","session_ids":["s"],"window":{"start":null,"end":null,"effective_start":null,"effective_end":1788562784.2489245,"start_inclusive":true,"end_exclusive":true,"end_omitted_means":"through_current_persisted_usage"},"coverage":{"status":"UNAVAILABLE","reason":"trusted_cutover_baseline_incomplete","detail_started_at":null,"exact_start":null,"exact_end":null},"events":[],"events_truncated":false,"event_limit":100,"routes":[],"routes_truncated":false,"totals":null,"profile":"default"}
+E   assert 200 == 503
+E    +  where 200 = <Response [200 OK]>.status_code
+___ test_damaged_active_transport_is_503_and_immutable[altered_high_water] ____
+tests\hermes_cli\test_stage4a_transport.py:60: in test_damaged_active_transport_is_503_and_immutable
+    assert response.status_code == 503, response.text
+E   AssertionError: {"capability":"session.usage.detail.v1","session_id":"s","scope":"physical","session_ids":["s"],"window":{"start":null,"end":null,"effective_start":null,"effective_end":1788562784.7664044,"start_inclusive":true,"end_exclusive":true,"end_omitted_means":"through_current_persisted_usage"},"coverage":{"status":"UNAVAILABLE","reason":"trusted_cutover_epoch_inconsistent","detail_started_at":null,"exact_start":null,"exact_end":null},"events":[],"events_truncated":false,"event_limit":100,"routes":[],"routes_truncated":false,"totals":null,"profile":"default"}
+E   assert 200 == 503
+E    +  where 200 = <Response [200 OK]>.status_code
+_ test_damaged_active_transport_is_503_and_immutable[altered_integrity_hash] __
+tests\hermes_cli\test_stage4a_transport.py:60: in test_damaged_active_transport_is_503_and_immutable
+    assert response.status_code == 503, response.text
+E   AssertionError: {"capability":"session.usage.detail.v1","session_id":"s","scope":"physical","session_ids":["s"],"window":{"start":null,"end":null,"effective_start":null,"effective_end":1788562785.2840104,"start_inclusive":true,"end_exclusive":true,"end_omitted_means":"through_current_persisted_usage"},"coverage":{"status":"UNAVAILABLE","reason":"trusted_cutover_epoch_inconsistent","detail_started_at":null,"exact_start":null,"exact_end":null},"events":[],"events_truncated":false,"event_limit":100,"routes":[],"routes_truncated":false,"totals":null,"profile":"default"}
+E   assert 200 == 503
+E    +  where 200 = <Response [200 OK]>.status_code
+_ test_damaged_active_transport_is_503_and_immutable[baseline_table_recreated_empty] _
+tests\hermes_cli\test_stage4a_transport.py:62: in test_damaged_active_transport_is_503_and_immutable
+    assert payload["coverage"]["status"] == "UNAVAILABLE"
+           ^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'coverage'
+------------------------------ Captured log call ------------------------------
+ERROR    hermes_cli.web_server:sessions.py:672 GET /api/sessions/s/usage failed
+Traceback (most recent call last):
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 12652, in _open_session_db_at_path
+    return _open_probed()
+           ^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 12645, in _open_probed
+    conn.execute(statement).fetchone()
+    ^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such table: session_usage_reconciliation_baseline
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_routers\sessions.py", line 666, in get_session_usage
+    result = await asyncio.to_thread(_read)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\AppData\Local\hermes\runtimes\python-3.11.9-signed\Lib\asyncio\threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\AppData\Local\hermes\runtimes\python-3.11.9-signed\Lib\concurrent\futures\thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_routers\sessions.py", line 651, in _read
+    db = _open_session_db_for_profile(profile, read_only=True)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_deps.py", line 47, in _proxy
+    return getattr(_server(), name)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 12703, in _open_session_db_for_profile
+    return _open_session_db_at_path(db_path, read_only=read_only)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 12664, in _open_session_db_at_path
+    SessionDB(db_path=db_path, read_only=False).close()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state.py", line 5687, in __init__
+    _open_with_optional_startup_guard()
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state.py", line 5684, in _open_with_optional_startup_guard
+    _connect_and_init_with_lock_patience()
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state.py", line 5648, in _connect_and_init_with_lock_patience
+    _connect_and_init()
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state.py", line 5632, in _connect_and_init
+    self._init_schema()
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state_schema.py", line 1705, in _init_schema
+    self._ensure_usage_detail_activation(
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state_schema.py", line 1385, in _ensure_usage_detail_activation
+    raise RuntimeError(
+RuntimeError: incomplete trusted session usage cutover baseline
+____ test_damaged_active_transport_is_503_and_immutable[epoch_row_missing] ____
+tests\hermes_cli\test_stage4a_transport.py:60: in test_damaged_active_transport_is_503_and_immutable
+    assert response.status_code == 503, response.text
+E   AssertionError: {"capability":"session.usage.detail.v1","session_id":"s","scope":"physical","session_ids":["s"],"window":{"start":null,"end":null,"effective_start":null,"effective_end":1788562786.3344681,"start_inclusive":true,"end_exclusive":true,"end_omitted_means":"through_current_persisted_usage"},"coverage":{"status":"UNAVAILABLE","reason":"trusted_epoch_identity_unavailable","detail_started_at":null,"exact_start":null,"exact_end":null},"events":[],"events_truncated":false,"event_limit":100,"routes":[],"routes_truncated":false,"totals":null,"profile":"default"}
+E   assert 200 == 503
+E    +  where 200 = <Response [200 OK]>.status_code
+___ test_damaged_active_transport_is_503_and_immutable[epoch_table_missing] ___
+tests\hermes_cli\test_stage4a_transport.py:60: in test_damaged_active_transport_is_503_and_immutable
+    assert response.status_code == 503, response.text
+E   AssertionError: {"capability":"session.usage.detail.v1","session_id":"s","scope":"physical","session_ids":["s"],"window":{"start":null,"end":null,"effective_start":null,"effective_end":1788562786.8620257,"start_inclusive":true,"end_exclusive":true,"end_omitted_means":"through_current_persisted_usage"},"coverage":{"status":"UNAVAILABLE","reason":"trusted_epoch_identity_unavailable","detail_started_at":null,"exact_start":null,"exact_end":null},"events":[],"events_truncated":false,"event_limit":100,"routes":[],"routes_truncated":false,"totals":null,"profile":"default"}
+E   assert 200 == 503
+E    +  where 200 = <Response [200 OK]>.status_code
+_ test_damaged_active_transport_is_503_and_immutable[altered_generation_number] _
+tests\hermes_cli\test_stage4a_transport.py:60: in test_damaged_active_transport_is_503_and_immutable
+    assert response.status_code == 503, response.text
+E   AssertionError: {"capability":"session.usage.detail.v1","session_id":"s","scope":"physical","session_ids":["s"],"window":{"start":null,"end":null,"effective_start":null,"effective_end":1788562787.3777432,"start_inclusive":true,"end_exclusive":true,"end_omitted_means":"through_current_persisted_usage"},"coverage":{"status":"UNAVAILABLE","reason":"trusted_epoch_identity_inconsistent","detail_started_at":null,"exact_start":null,"exact_end":null},"events":[],"events_truncated":false,"event_limit":100,"routes":[],"routes_truncated":false,"totals":null,"profile":"default"}
+E   assert 200 == 503
+E    +  where 200 = <Response [200 OK]>.status_code
+_ test_damaged_active_transport_is_503_and_immutable[active_schema_shell_missing_state] _
+tests\hermes_cli\test_stage4a_transport.py:60: in test_damaged_active_transport_is_503_and_immutable
+    assert response.status_code == 503, response.text
+E   AssertionError: {"capability":"session.usage.detail.v1","session_id":"s","scope":"physical","session_ids":["s"],"window":{"start":null,"end":null,"effective_start":null,"effective_end":1788562787.8965201,"start_inclusive":true,"end_exclusive":true,"end_omitted_means":"through_current_persisted_usage"},"coverage":{"status":"UNAVAILABLE","reason":"coverage_start_unknown","detail_started_at":null,"exact_start":null,"exact_end":null},"events":[],"events_truncated":false,"event_limit":100,"routes":[],"routes_truncated":false,"totals":null,"profile":"default"}
+E   assert 200 == 503
+E    +  where 200 = <Response [200 OK]>.status_code
+_ test_damaged_active_transport_is_503_and_immutable[inconsistent_generation_integrity] _
+tests\hermes_cli\test_stage4a_transport.py:60: in test_damaged_active_transport_is_503_and_immutable
+    assert response.status_code == 503, response.text
+E   AssertionError: {"capability":"session.usage.detail.v1","session_id":"s","scope":"physical","session_ids":["s"],"window":{"start":null,"end":null,"effective_start":null,"effective_end":1788562788.4137437,"start_inclusive":true,"end_exclusive":true,"end_omitted_means":"through_current_persisted_usage"},"coverage":{"status":"UNAVAILABLE","reason":"trusted_cutover_epoch_inconsistent","detail_started_at":null,"exact_start":null,"exact_end":null},"events":[],"events_truncated":false,"event_limit":100,"routes":[],"routes_truncated":false,"totals":null,"profile":"default"}
+E   assert 200 == 503
+E    +  where 200 = <Response [200 OK]>.status_code
+_ test_damaged_active_transport_is_503_and_immutable[all_epoch_and_cutover_artifacts_removed] _
+tests\hermes_cli\test_stage4a_transport.py:62: in test_damaged_active_transport_is_503_and_immutable
+    assert payload["coverage"]["status"] == "UNAVAILABLE"
+           ^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'coverage'
+------------------------------ Captured log call ------------------------------
+ERROR    hermes_cli.web_server:sessions.py:672 GET /api/sessions/s/usage failed
+Traceback (most recent call last):
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 12652, in _open_session_db_at_path
+    return _open_probed()
+           ^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 12645, in _open_probed
+    conn.execute(statement).fetchone()
+    ^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such table: session_usage_reconciliation_baseline
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_routers\sessions.py", line 666, in get_session_usage
+    result = await asyncio.to_thread(_read)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\AppData\Local\hermes\runtimes\python-3.11.9-signed\Lib\asyncio\threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\AppData\Local\hermes\runtimes\python-3.11.9-signed\Lib\concurrent\futures\thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_routers\sessions.py", line 651, in _read
+    db = _open_session_db_for_profile(profile, read_only=True)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_deps.py", line 47, in _proxy
+    return getattr(_server(), name)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 12703, in _open_session_db_for_profile
+    return _open_session_db_at_path(db_path, read_only=read_only)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 12664, in _open_session_db_at_path
+    SessionDB(db_path=db_path, read_only=False).close()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state.py", line 5687, in __init__
+    _open_with_optional_startup_guard()
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state.py", line 5684, in _open_with_optional_startup_guard
+    _connect_and_init_with_lock_patience()
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state.py", line 5648, in _connect_and_init_with_lock_patience
+    _connect_and_init()
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state.py", line 5632, in _connect_and_init
+    self._init_schema()
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state_schema.py", line 1705, in _init_schema
+    self._ensure_usage_detail_activation(
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state_schema.py", line 1508, in _ensure_usage_detail_activation
+    raise RuntimeError(
+RuntimeError: damaged trusted session usage cutover state
+_ test_damaged_active_transport_is_503_and_immutable[schema_generation_mismatch] _
+tests\hermes_cli\test_stage4a_transport.py:60: in test_damaged_active_transport_is_503_and_immutable
+    assert response.status_code == 503, response.text
+E   AssertionError: {"capability":"session.usage.detail.v1","session_id":"s","scope":"physical","session_ids":["s"],"window":{"start":null,"end":null,"effective_start":null,"effective_end":1788562789.4809985,"start_inclusive":true,"end_exclusive":true,"end_omitted_means":"through_current_persisted_usage"},"coverage":{"status":"UNAVAILABLE","reason":"trusted_epoch_identity_inconsistent","detail_started_at":null,"exact_start":null,"exact_end":null},"events":[],"events_truncated":false,"event_limit":100,"routes":[],"routes_truncated":false,"totals":null,"profile":"default"}
+E   assert 200 == 503
+E    +  where 200 = <Response [200 OK]>.status_code
+_ test_damaged_active_transport_is_503_and_immutable[complete_ordinary_erasure] _
+tests\hermes_cli\test_stage4a_transport.py:62: in test_damaged_active_transport_is_503_and_immutable
+    assert payload["coverage"]["status"] == "UNAVAILABLE"
+           ^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'coverage'
+------------------------------ Captured log call ------------------------------
+ERROR    hermes_cli.web_server:sessions.py:672 GET /api/sessions/s/usage failed
+Traceback (most recent call last):
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 12652, in _open_session_db_at_path
+    return _open_probed()
+           ^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 12645, in _open_probed
+    conn.execute(statement).fetchone()
+    ^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such table: session_usage_reconciliation_baseline
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_routers\sessions.py", line 666, in get_session_usage
+    result = await asyncio.to_thread(_read)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\AppData\Local\hermes\runtimes\python-3.11.9-signed\Lib\asyncio\threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\AppData\Local\hermes\runtimes\python-3.11.9-signed\Lib\concurrent\futures\thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_routers\sessions.py", line 651, in _read
+    db = _open_session_db_for_profile(profile, read_only=True)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_deps.py", line 47, in _proxy
+    return getattr(_server(), name)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 12703, in _open_session_db_for_profile
+    return _open_session_db_at_path(db_path, read_only=read_only)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_server.py", line 12664, in _open_session_db_at_path
+    SessionDB(db_path=db_path, read_only=False).close()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state.py", line 5687, in __init__
+    _open_with_optional_startup_guard()
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state.py", line 5684, in _open_with_optional_startup_guard
+    _connect_and_init_with_lock_patience()
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state.py", line 5648, in _connect_and_init_with_lock_patience
+    _connect_and_init()
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state.py", line 5632, in _connect_and_init
+    self._init_schema()
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state_schema.py", line 1705, in _init_schema
+    self._ensure_usage_detail_activation(
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state_schema.py", line 1413, in _ensure_usage_detail_activation
+    raise RuntimeError(
+RuntimeError: damaged trusted session usage cutover state
+____ test_damaged_active_transport_is_503_and_immutable[malformed_marker] _____
+tests\hermes_cli\test_stage4a_transport.py:60: in test_damaged_active_transport_is_503_and_immutable
+    assert response.status_code == 503, response.text
+E   AssertionError: {"capability":"session.usage.detail.v1","session_id":"s","scope":"physical","session_ids":["s"],"window":{"start":null,"end":null,"effective_start":null,"effective_end":1788562790.5710185,"start_inclusive":true,"end_exclusive":true,"end_omitted_means":"through_current_persisted_usage"},"coverage":{"status":"UNAVAILABLE","reason":"coverage_start_invalid","detail_started_at":null,"exact_start":null,"exact_end":null},"events":[],"events_truncated":false,"event_limit":100,"routes":[],"routes_truncated":false,"totals":null,"profile":"default"}
+E   assert 200 == 503
+E    +  where 200 = <Response [200 OK]>.status_code
+___ test_damaged_active_transport_is_503_and_immutable[malformed_baseline] ____
+tests\hermes_cli\test_stage4a_transport.py:60: in test_damaged_active_transport_is_503_and_immutable
+    assert response.status_code == 503, response.text
+E   AssertionError: {"capability":"session.usage.detail.v1","session_id":"s","scope":"physical","session_ids":["s"],"window":{"start":null,"end":null,"effective_start":null,"effective_end":1788562791.0861545,"start_inclusive":true,"end_exclusive":true,"end_omitted_means":"through_current_persisted_usage"},"coverage":{"status":"UNAVAILABLE","reason":"coverage_start_invalid","detail_started_at":null,"exact_start":null,"exact_end":null},"events":[],"events_truncated":false,"event_limit":100,"routes":[],"routes_truncated":false,"totals":null,"profile":"default"}
+E   assert 200 == 503
+E    +  where 200 = <Response [200 OK]>.status_code
+_ test_damaged_active_transport_is_503_and_immutable[malformed_epoch_schema] __
+tests\hermes_cli\test_stage4a_transport.py:60: in test_damaged_active_transport_is_503_and_immutable
+    assert response.status_code == 503, response.text
+E   AssertionError: {"detail":"Session usage read failed."}
+E   assert 500 == 503
+E    +  where 500 = <Response [500 Internal Server Error]>.status_code
+------------------------------ Captured log call ------------------------------
+ERROR    hermes_cli.web_server:sessions.py:678 GET /api/sessions/s/usage failed
+Traceback (most recent call last):
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_routers\sessions.py", line 666, in get_session_usage
+    result = await asyncio.to_thread(_read)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\AppData\Local\hermes\runtimes\python-3.11.9-signed\Lib\asyncio\threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\AppData\Local\hermes\runtimes\python-3.11.9-signed\Lib\concurrent\futures\thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_cli\web_routers\sessions.py", line 656, in _read
+    return db.get_session_usage_detail(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state.py", line 10934, in get_session_usage_detail
+    return self.get_session_usage_detail(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\khairul\.codex\visualizations\2026\09\04\01a06e9f-2a85-7130-b5af-7686991a933b\h\hermes_state.py", line 11031, in get_session_usage_detail
+    epoch_identity_rows = conn.execute(
+                          ^^^^^^^^^^^^^
+sqlite3.OperationalError: no such column: epoch_id
+__ test_damaged_active_transport_is_503_and_immutable[missing_detail_table] ___
+tests\hermes_cli\test_stage4a_transport.py:60: in test_damaged_active_transport_is_503_and_immutable
+    assert response.status_code == 503, response.text
+E   AssertionError: {"capability":"session.usage.detail.v1","session_id":"s","scope":"physical","session_ids":["s"],"window":{"start":null,"end":null,"effective_start":1788562792.0059178,"effective_end":1788562792.1838477,"start_inclusive":true,"end_exclusive":true,"end_omitted_means":"through_current_persisted_usage"},"coverage":{"status":"PARTIAL","reason":"aggregate_detail_mismatch","detail_started_at":1788562792.078069,"exact_start":1788562792.078069,"exact_end":1788562792.1838477,"historical_aggregate_available":true},"events":[],"events_truncated":false,"event_limit":100,"routes":[],"routes_truncated":false,"totals":{"api_call_count":0,"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"estimated_cost_usd":0,"actual_cost_usd":0},"profile":"default"}
+E   assert 200 == 503
+E    +  where 200 = <Response [200 OK]>.status_code
+__ test_damaged_active_transport_is_503_and_immutable[inconsistent_cutover] ___
+tests\hermes_cli\test_stage4a_transport.py:60: in test_damaged_active_transport_is_503_and_immutable
+    assert response.status_code == 503, response.text
+E   AssertionError: {"capability":"session.usage.detail.v1","session_id":"s","scope":"physical","session_ids":["s"],"window":{"start":null,"end":null,"effective_start":null,"effective_end":1788562792.7109962,"start_inclusive":true,"end_exclusive":true,"end_omitted_means":"through_current_persisted_usage"},"coverage":{"status":"UNAVAILABLE","reason":"trusted_cutover_epoch_inconsistent","detail_started_at":null,"exact_start":null,"exact_end":null},"events":[],"events_truncated":false,"event_limit":100,"routes":[],"routes_truncated":false,"totals":null,"profile":"default"}
+E   assert 200 == 503
+E    +  where 200 = <Response [200 OK]>.status_code
+______________ test_accounting_sync_failure_has_distinct_reason _______________
+tests\hermes_cli\test_stage4a_transport.py:80: in test_accounting_sync_failure_has_distinct_reason
+    assert response.status_code == 503
+E   assert 200 == 503
+E    +  where 200 = <Response [200 OK]>.status_code
+============================== warnings summary ===============================
+tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[marker_only]
+  C:\Users\khairul\Projects\hermes-agent-forge-runtime\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[marker_only]
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[baseline_only]
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[high_water_only]
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[integrity_binding_only]
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[one_baseline_route]
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[multiple_baseline_routes]
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[marker_and_high_water]
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[marker_and_integrity_binding]
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[baseline_and_marker]
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[altered_baseline_value]
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[altered_high_water]
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[altered_integrity_hash]
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[baseline_table_recreated_empty]
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[epoch_row_missing]
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[epoch_table_missing]
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[altered_generation_number]
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[active_schema_shell_missing_state]
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[inconsistent_generation_integrity]
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[all_epoch_and_cutover_artifacts_removed]
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[schema_generation_mismatch]
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[complete_ordinary_erasure]
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[malformed_marker]
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[malformed_baseline]
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[malformed_epoch_schema]
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[missing_detail_table]
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_damaged_active_transport_is_503_and_immutable[inconsistent_cutover]
+FAILED tests/hermes_cli/test_stage4a_transport.py::test_accounting_sync_failure_has_distinct_reason
+27 failed, 2 passed, 1 warning in 16.34s
+
+=== 1 file with test failures (27 tests failed) ===
+  tests\hermes_cli\test_stage4a_transport.py  (27 tests failed)
