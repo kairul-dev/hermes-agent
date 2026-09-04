@@ -32,6 +32,7 @@ from hermes_state_common import (
     LEGACY_FTS_TRIGRAM_SQL,
     SCHEMA_SQL,
     SCHEMA_VERSION,
+    SESSION_USAGE_DETAIL_COVERAGE_KEY,
     _FTS_CJK_TRIGGERS,
     _FTS_TRIGGERS,
     _ephemeral_child_sql,
@@ -1219,6 +1220,15 @@ class SessionSchemaMixin:
         cursor = self._conn.cursor()
 
         cursor.executescript(SCHEMA_SQL)
+
+        # The detailed usage ledger is forward-only. Persist the exact
+        # profile-local activation boundary once, after the table exists, so
+        # readers can distinguish complete windows from historical aggregate
+        # data that cannot be partitioned exactly.
+        cursor.execute(
+            "INSERT OR IGNORE INTO state_meta (key, value) VALUES (?, ?)",
+            (SESSION_USAGE_DETAIL_COVERAGE_KEY, repr(time.time())),
+        )
 
         # ── Declarative column reconciliation ──────────────────────────
         # Diff live tables against SCHEMA_SQL and ADD any missing columns.

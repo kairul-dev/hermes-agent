@@ -21,6 +21,7 @@ import errno
 import hashlib
 import json
 import logging
+import math
 import os
 import queue
 import random
@@ -92,6 +93,7 @@ from hermes_state_common import (  # noqa: F401  (re-exported for back-compat)
     MAX_FTS5_QUERY_CHARS,
     SCHEMA_SQL,
     SCHEMA_VERSION,
+    SESSION_USAGE_DETAIL_COVERAGE_KEY,
     _PREVIEW_CONTENT_SQL,
     _PREVIEW_HEAD_CHARS,
     _PREVIEW_MAX_CHARS,
@@ -116,6 +118,9 @@ logger = logging.getLogger(__name__)
 
 MAX_SAFE_RESUME_MESSAGES = 20_000
 MAX_SAFE_EXPORT_MESSAGES = 20_000
+SESSION_USAGE_DETAIL_CAPABILITY = "session.usage.detail.v1"
+MAX_SESSION_USAGE_ROUTES = 100
+MAX_SESSION_USAGE_LINEAGE = 256
 
 # Auto-maintenance only VACUUMs when at least this fraction of the database
 # file is reclaimable (``PRAGMA freelist_count / PRAGMA page_count``). Below
@@ -9995,6 +10000,10 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         "model", "cost_status", "cost_source", "pricing_version",
         "billing_provider", "billing_base_url", "billing_mode",
     )
+    # Internal detail-ledger fields are preserved as an ordered event list by
+    # _coalesce_token_deltas; they are neither summed nor part of route
+    # equality, so aggregate coalescing cannot erase per-event timestamps.
+    _TOKEN_DELTA_EVENT_FIELDS = ("_usage_timestamp", "_usage_events")
 
     def queue_token_counts(self, session_id: str, **kwargs) -> None:
         """Enqueue a token/cost delta for the background writer.
@@ -10005,6 +10014,11 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         API call.  After close() has stopped the writer, falls back to the
         synchronous path and may raise like :meth:`update_token_counts`.
         """
+        # Capture event time on the producer thread. The writer can be delayed
+        # or coalesce several deltas, but the detailed ledger must retain when
+        # each accounting event entered the authoritative queue.
+        kwargs = dict(kwargs)
+        kwargs.setdefault("_usage_timestamp", time.time())
         with self._token_queue_cond:
             thread = self._token_writer_thread
             writer_stopped = self._token_writer_stop and (
@@ -10165,6 +10179,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         """
         groups: List[Tuple[Optional[tuple], str, Dict[str, Any]]] = []
         for session_id, kwargs in batch:
+            event = dict(kwargs)
             key = None
             if not kwargs.get("absolute"):
                 key = (session_id,) + tuple(
@@ -10172,6 +10187,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                 )
             if groups and key is not None and groups[-1][0] == key:
                 merged = groups[-1][2]
+                merged.setdefault("_usage_events", []).append(event)
                 for f in self._TOKEN_DELTA_SUM_FIELDS:
                     merged[f] = merged.get(f, 0) + kwargs.get(f, 0)
                 for f in self._TOKEN_DELTA_COST_FIELDS:
@@ -10181,7 +10197,10 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                         # None so COALESCE keeps the stored value untouched.
                         merged[f] = (merged.get(f) or 0.0) + value
             else:
-                groups.append((key, session_id, dict(kwargs)))
+                merged = dict(kwargs)
+                if key is not None:
+                    merged["_usage_events"] = [event]
+                groups.append((key, session_id, merged))
         return [(sid, kw) for _, sid, kw in groups]
 
     def _stop_token_writer(self, join_timeout: float = 10.0) -> None:
@@ -10263,6 +10282,8 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         billing_mode: Optional[str] = None,
         api_call_count: int = 0,
         absolute: bool = False,
+        _usage_timestamp: Optional[float] = None,
+        _usage_events: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
         """Update token counters and backfill model if not already set.
 
@@ -10360,7 +10381,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         record_model_usage = (not absolute) and (
             input_tokens or output_tokens or cache_read_tokens
             or cache_write_tokens or reasoning_tokens or api_call_count
-            or estimated_cost_usd
+            or estimated_cost_usd or actual_cost_usd
         )
 
         def _do(conn):
@@ -10410,6 +10431,8 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                     cost_status=cost_status,
                     cost_source=cost_source,
                     api_call_count=api_call_count,
+                    usage_timestamp=_usage_timestamp,
+                    usage_events=_usage_events,
                 )
         self._execute_write(_do)
 
@@ -10433,6 +10456,8 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         cost_source: Optional[str],
         api_call_count: int,
         task: str = "",
+        usage_timestamp: Optional[float] = None,
+        usage_events: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
         """Accumulate a per-API-call usage delta into session_model_usage.
 
@@ -10515,6 +10540,54 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
             ),
         )
 
+        # Exact forward-only detail. The aggregate write above and every
+        # event row below share the caller's transaction, so a committed event
+        # cannot be counted twice or drift from session_model_usage. Queued
+        # main-loop deltas retain one event snapshot apiece even when their
+        # aggregate UPDATE was safely coalesced; direct and auxiliary writes
+        # naturally produce one accounting event (which may carry
+        # api_call_count > 1 when the producer only has an authoritative
+        # batch, such as background review).
+        detail_events = usage_events or [{
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cache_read_tokens": cache_read_tokens,
+            "cache_write_tokens": cache_write_tokens,
+            "reasoning_tokens": reasoning_tokens,
+            "estimated_cost_usd": estimated_cost_usd,
+            "actual_cost_usd": actual_cost_usd,
+            "api_call_count": api_call_count,
+            "_usage_timestamp": usage_timestamp,
+        }]
+        for event in detail_events:
+            event_timestamp = event.get("_usage_timestamp")
+            conn.execute(
+                """INSERT INTO session_usage_events (
+                       session_id, recorded_at, model, billing_provider,
+                       billing_base_url, billing_mode, task, api_call_count,
+                       input_tokens, output_tokens, cache_read_tokens,
+                       cache_write_tokens, reasoning_tokens,
+                       estimated_cost_usd, actual_cost_usd
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    session_id,
+                    float(now if event_timestamp is None else event_timestamp),
+                    eff_model,
+                    eff_provider,
+                    eff_base_url,
+                    eff_billing_mode,
+                    task or "",
+                    int(event.get("api_call_count") or 0),
+                    int(event.get("input_tokens") or 0),
+                    int(event.get("output_tokens") or 0),
+                    int(event.get("cache_read_tokens") or 0),
+                    int(event.get("cache_write_tokens") or 0),
+                    int(event.get("reasoning_tokens") or 0),
+                    float(event.get("estimated_cost_usd") or 0.0),
+                    float(event.get("actual_cost_usd") or 0.0),
+                ),
+            )
+
     def ensure_session(
         self,
         session_id: str,
@@ -10591,6 +10664,348 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                 task=task,
             )
         self._execute_write(_do)
+
+    def get_session_usage_detail(
+        self,
+        session_id: str,
+        *,
+        scope: str = "physical",
+        start: Optional[float] = None,
+        end: Optional[float] = None,
+        route_limit: int = MAX_SESSION_USAGE_ROUTES,
+    ) -> Optional[Dict[str, Any]]:
+        """Return bounded, forward-only exact usage for one session.
+
+        ``scope`` is either ``physical`` (the exact session id) or
+        ``compression_lineage`` (Hermes' deterministic compression chain;
+        explicit branches, delegates, and tool children remain excluded).
+
+        The time window is ``[start, end)`` in Unix seconds. An omitted start
+        begins at the earliest selected session; an omitted end snapshots
+        through usage persisted when this method begins. Historical aggregate
+        rows are never folded into exact totals. Coverage describes whether
+        the requested window predates the profile's ledger activation or the
+        aggregate/detail reconciliation detects a gap.
+
+        Returns ``None`` when the physical session does not exist. Source
+        unavailability is returned as a machine-readable coverage result;
+        SQLite read errors still raise so transport callers can return 503
+        rather than fabricate zero usage.
+        """
+        if scope not in {"physical", "compression_lineage"}:
+            raise ValueError(
+                "scope must be one of: physical, compression_lineage"
+            )
+        if route_limit < 1 or route_limit > MAX_SESSION_USAGE_ROUTES:
+            raise ValueError(
+                f"route_limit must be between 1 and {MAX_SESSION_USAGE_ROUTES}"
+            )
+
+        def _timestamp(value: Optional[float], name: str) -> Optional[float]:
+            if value is None:
+                return None
+            try:
+                parsed = float(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{name} must be a finite Unix timestamp") from exc
+            if not math.isfinite(parsed) or parsed < 0:
+                raise ValueError(f"{name} must be a finite non-negative Unix timestamp")
+            return parsed
+
+        start = _timestamp(start, "start")
+        end = _timestamp(end, "end")
+        if start is not None and end is not None and end < start:
+            raise ValueError("end must be greater than or equal to start")
+
+        read_at = time.time()
+
+        def _window_payload(
+            effective_start: Optional[float], effective_end: float
+        ) -> Dict[str, Any]:
+            return {
+                "start": start,
+                "end": end,
+                "effective_start": effective_start,
+                "effective_end": effective_end,
+                "start_inclusive": True,
+                "end_exclusive": True,
+                "end_omitted_means": "through_current_persisted_usage",
+            }
+
+        def _unavailable(
+            reason: str,
+            *,
+            ids: Optional[List[str]] = None,
+            effective_start: Optional[float] = None,
+            effective_end: Optional[float] = None,
+            detail_started_at: Optional[float] = None,
+        ) -> Dict[str, Any]:
+            resolved_end = read_at if effective_end is None else effective_end
+            return {
+                "capability": SESSION_USAGE_DETAIL_CAPABILITY,
+                "session_id": session_id,
+                "scope": scope,
+                "session_ids": ids or [session_id],
+                "window": _window_payload(effective_start, resolved_end),
+                "coverage": {
+                    "status": "UNAVAILABLE",
+                    "reason": reason,
+                    "detail_started_at": detail_started_at,
+                    "exact_start": None,
+                    "exact_end": None,
+                },
+                "routes": [],
+                "routes_truncated": False,
+                "totals": None,
+            }
+
+        # Long-lived agents use the process-wide shared SessionDB registry.
+        # A dashboard read may hold a separate read-only handle, so flush every
+        # live shared writer for this exact DB path before taking the snapshot.
+        # This reuses the existing accounting queue and synchronization point;
+        # it never creates a second queue or borrows a different profile.
+        try:
+            from hermes_state_registry import live_shared_session_dbs
+
+            try:
+                own_path = Path(self.db_path).resolve()
+            except OSError:
+                own_path = Path(self.db_path)
+            for live_db in live_shared_session_dbs():
+                try:
+                    live_path = Path(live_db.db_path).resolve()
+                except OSError:
+                    live_path = Path(live_db.db_path)
+                if live_path == own_path and live_db is not self:
+                    if not live_db.flush_token_counts():
+                        return _unavailable("accounting_flush_timeout")
+        except Exception:
+            logger.warning(
+                "session usage read could not flush shared accounting for %s",
+                session_id,
+                exc_info=True,
+            )
+            return _unavailable("accounting_flush_failed")
+        if not self.flush_token_counts():
+            return _unavailable("accounting_flush_timeout")
+
+        # The snapshot boundary is taken AFTER the synchronization point.
+        # Windows' wall clock can return the same float for consecutive calls;
+        # capturing it before the drain made a pre-existing queued event land
+        # exactly on the end-exclusive boundary and disappear from this read.
+        read_at = time.time()
+
+        session = self.get_session(session_id)
+        if session is None:
+            return None
+
+        session_ids = [session_id]
+        if scope == "compression_lineage":
+            session_ids = self.get_compression_lineage(session_id)
+            if not session_ids or session_id not in session_ids:
+                return _unavailable("compression_lineage_unavailable")
+            if len(session_ids) > MAX_SESSION_USAGE_LINEAGE:
+                return _unavailable(
+                    "compression_lineage_too_large", ids=session_ids[:1]
+                )
+
+            # get_compression_lineage uses Hermes' canonical edge classifier.
+            # It historically picks the first continuation if corrupt/legacy
+            # data presents two eligible children. Detect that ambiguity here
+            # and fail closed rather than returning one arbitrary path.
+            placeholders = ",".join("?" for _ in session_ids)
+            with self._read_ctx() as conn:
+                children = conn.execute(
+                    f"SELECT child.* FROM sessions child "
+                    f"JOIN sessions parent ON parent.id = child.parent_session_id "
+                    f"WHERE parent.id IN ({placeholders}) "
+                    "AND parent.end_reason = 'compression' "
+                    "ORDER BY child.parent_session_id, child.started_at, child.id",
+                    session_ids,
+                ).fetchall()
+            by_parent: Dict[str, int] = {}
+            for row in children:
+                child = dict(row)
+                if self._is_explicit_fork_child_row(child):
+                    continue
+                parent_id = str(child.get("parent_session_id") or "")
+                by_parent[parent_id] = by_parent.get(parent_id, 0) + 1
+            if any(count > 1 for count in by_parent.values()):
+                return _unavailable(
+                    "ambiguous_compression_lineage", ids=session_ids
+                )
+
+        placeholders = ",".join("?" for _ in session_ids)
+        required_columns = {
+            "id", "session_id", "recorded_at", "model",
+            "billing_provider", "billing_base_url", "billing_mode", "task",
+            "api_call_count", "input_tokens", "output_tokens",
+            "cache_read_tokens", "cache_write_tokens", "reasoning_tokens",
+            "estimated_cost_usd", "actual_cost_usd",
+        }
+        with self._read_ctx() as conn:
+            table = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                "AND name = 'session_usage_events'"
+            ).fetchone()
+            if table is None:
+                return _unavailable(
+                    "detail_table_unavailable", ids=session_ids
+                )
+            columns = {
+                str(row[1])
+                for row in conn.execute(
+                    'PRAGMA table_info("session_usage_events")'
+                ).fetchall()
+            }
+            if not required_columns.issubset(columns):
+                return _unavailable(
+                    "detail_schema_incompatible", ids=session_ids
+                )
+            marker = conn.execute(
+                "SELECT value FROM state_meta WHERE key = ?",
+                (SESSION_USAGE_DETAIL_COVERAGE_KEY,),
+            ).fetchone()
+            started_row = conn.execute(
+                f"SELECT MIN(started_at) FROM sessions "
+                f"WHERE id IN ({placeholders})",
+                session_ids,
+            ).fetchone()
+
+        if marker is None:
+            return _unavailable(
+                "coverage_start_unknown", ids=session_ids
+            )
+        try:
+            detail_started_at = float(marker[0])
+        except (TypeError, ValueError):
+            return _unavailable(
+                "coverage_start_invalid", ids=session_ids
+            )
+        if not math.isfinite(detail_started_at) or detail_started_at < 0:
+            return _unavailable(
+                "coverage_start_invalid", ids=session_ids
+            )
+
+        session_started_at = float(started_row[0] or session.get("started_at") or 0)
+        requested_start = start if start is not None else session_started_at
+        effective_end = min(end, read_at) if end is not None else read_at
+        if effective_end <= detail_started_at and requested_start < detail_started_at:
+            return _unavailable(
+                "requested_window_precedes_detail",
+                ids=session_ids,
+                effective_start=requested_start,
+                effective_end=effective_end,
+                detail_started_at=detail_started_at,
+            )
+        exact_start = max(requested_start, detail_started_at)
+
+        metric_fields = (
+            "api_call_count",
+            "input_tokens",
+            "output_tokens",
+            "cache_read_tokens",
+            "cache_write_tokens",
+            "reasoning_tokens",
+            "estimated_cost_usd",
+            "actual_cost_usd",
+        )
+        where = (
+            f"session_id IN ({placeholders}) "
+            "AND recorded_at >= ? AND recorded_at < ?"
+        )
+        params: List[Any] = [*session_ids, exact_start, effective_end]
+        sums = ", ".join(
+            f"COALESCE(SUM({field}), 0) AS {field}"
+            for field in metric_fields
+        )
+        with self._read_ctx() as conn:
+            total_row = conn.execute(
+                f"SELECT {sums} FROM session_usage_events WHERE {where}",
+                params,
+            ).fetchone()
+            route_rows = conn.execute(
+                f"""SELECT task, model, billing_provider, billing_mode,
+                            {sums},
+                            MIN(recorded_at) AS first_seen,
+                            MAX(recorded_at) AS last_seen
+                     FROM session_usage_events
+                     WHERE {where}
+                     GROUP BY task, model, billing_provider, billing_mode
+                     ORDER BY task, model, billing_provider, billing_mode
+                     LIMIT ?""",
+                [*params, route_limit + 1],
+            ).fetchall()
+            aggregate_row = conn.execute(
+                f"SELECT {sums} FROM session_model_usage "
+                f"WHERE session_id IN ({placeholders})",
+                session_ids,
+            ).fetchone()
+            lifetime_detail_row = conn.execute(
+                f"SELECT {sums} FROM session_usage_events "
+                f"WHERE session_id IN ({placeholders})",
+                session_ids,
+            ).fetchone()
+
+        totals = dict(total_row)
+        routes_truncated = len(route_rows) > route_limit
+        routes = [dict(row) for row in route_rows[:route_limit]]
+        aggregate = dict(aggregate_row)
+        lifetime_detail = dict(lifetime_detail_row)
+
+        mismatch = False
+        for field in metric_fields:
+            left = aggregate.get(field) or 0
+            right = lifetime_detail.get(field) or 0
+            if field.endswith("_usd"):
+                if not math.isclose(float(left), float(right), rel_tol=1e-9, abs_tol=1e-12):
+                    mismatch = True
+                    break
+            elif int(left) != int(right):
+                mismatch = True
+                break
+
+        has_exact_usage = any((totals.get(field) or 0) != 0 for field in metric_fields)
+        aggregate_has_usage = any(
+            (aggregate.get(field) or 0) != 0 for field in metric_fields
+        )
+        status = "COMPLETE"
+        reason = "exact_detail_available" if has_exact_usage else "exact_detail_available_no_usage"
+        if mismatch:
+            status = "PARTIAL"
+            reason = (
+                "historical_aggregate_only"
+                if aggregate_has_usage and not any(
+                    (lifetime_detail.get(field) or 0) != 0
+                    for field in metric_fields
+                )
+                else "aggregate_detail_mismatch"
+            )
+        elif requested_start < detail_started_at:
+            status = "PARTIAL"
+            reason = "exact_detail_begins_after_window_start"
+        elif end is not None and end > read_at:
+            status = "PARTIAL"
+            reason = "requested_window_not_yet_complete"
+
+        return {
+            "capability": SESSION_USAGE_DETAIL_CAPABILITY,
+            "session_id": session_id,
+            "scope": scope,
+            "session_ids": session_ids,
+            "window": _window_payload(requested_start, effective_end),
+            "coverage": {
+                "status": status,
+                "reason": reason,
+                "detail_started_at": detail_started_at,
+                "exact_start": exact_start,
+                "exact_end": effective_end,
+                "historical_aggregate_available": aggregate_has_usage,
+            },
+            "routes": routes,
+            "routes_truncated": routes_truncated,
+            "totals": totals,
+        }
 
     def prune_empty_ghost_sessions(self, sessions_dir: "Optional[Path]" = None) -> int:
         """Remove empty TUI ghost sessions (no messages, no title, >24hr old)."""

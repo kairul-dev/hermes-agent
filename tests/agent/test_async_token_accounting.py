@@ -519,7 +519,7 @@ class TestWriterFailure:
 class TestCoalesceFieldContract:
     def test_every_update_kwarg_is_classified_for_coalescing(self, db):
         """Every keyword of update_token_counts must be classified into
-        exactly one coalescing bucket (sum / cost / route / control).
+        exactly one coalescing bucket (sum / cost / route / event / control).
 
         _coalesce_token_deltas keeps unclassified kwargs only from the
         FIRST delta of a merged run — a new kwarg added to
@@ -536,6 +536,7 @@ class TestCoalesceFieldContract:
             set(db._TOKEN_DELTA_SUM_FIELDS)
             | set(db._TOKEN_DELTA_COST_FIELDS)
             | set(db._TOKEN_DELTA_ROUTE_FIELDS)
+            | set(db._TOKEN_DELTA_EVENT_FIELDS)
             | {"absolute"}  # control flag: absolute deltas never merge
         )
 
@@ -543,8 +544,9 @@ class TestCoalesceFieldContract:
         assert not unclassified, (
             f"update_token_counts kwargs not classified for coalescing: "
             f"{sorted(unclassified)}. Add each to _TOKEN_DELTA_SUM_FIELDS, "
-            f"_TOKEN_DELTA_COST_FIELDS, or _TOKEN_DELTA_ROUTE_FIELDS (or the "
-            f"control-flag set in this test) — unclassified kwargs are "
+            f"_TOKEN_DELTA_COST_FIELDS, _TOKEN_DELTA_ROUTE_FIELDS, or "
+            f"_TOKEN_DELTA_EVENT_FIELDS (or the control-flag set in this "
+            f"test) — unclassified kwargs are "
             f"silently dropped from merged deltas."
         )
         phantom = classified - params - {"absolute"}

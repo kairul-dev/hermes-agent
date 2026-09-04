@@ -356,6 +356,11 @@ def _sql_session_last_active_by_id(session_id_expr: str) -> str:
 
 SCHEMA_VERSION = 30
 
+# Unix timestamp stored in ``state_meta`` when the forward-only detailed
+# usage ledger first becomes available for a profile. Public usage reads use
+# this boundary to avoid presenting pre-ledger aggregate history as exact.
+SESSION_USAGE_DETAIL_COVERAGE_KEY = "session.usage.detail.v1.coverage_started_at"
+
 
 # FTS storage-layout version, tracked INDEPENDENTLY of SCHEMA_VERSION in the
 # state_meta key ``fts_storage_version``. The main schema version advances
@@ -527,6 +532,36 @@ CREATE TABLE IF NOT EXISTS session_model_usage (
     last_seen REAL,
     PRIMARY KEY (session_id, model, billing_provider, billing_base_url, billing_mode, task)
 );
+
+-- Forward-only usage accounting events. One row is written at the same
+-- accounting chokepoint and in the same transaction as session_model_usage.
+-- ``api_call_count`` is normally 1; values greater than 1 preserve an
+-- authoritative batched accounting event (for example background review)
+-- without fabricating individual call timestamps.
+--
+-- billing_base_url remains internal so accounting routes that share a public
+-- provider name stay distinct. The public service projection never selects
+-- or exposes it.
+CREATE TABLE IF NOT EXISTS session_usage_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    recorded_at REAL NOT NULL,
+    model TEXT NOT NULL DEFAULT '',
+    billing_provider TEXT NOT NULL DEFAULT '',
+    billing_base_url TEXT NOT NULL DEFAULT '',
+    billing_mode TEXT NOT NULL DEFAULT '',
+    task TEXT NOT NULL DEFAULT '',
+    api_call_count INTEGER NOT NULL DEFAULT 1,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+    reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+    estimated_cost_usd REAL NOT NULL DEFAULT 0,
+    actual_cost_usd REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_session_usage_events_session_time
+    ON session_usage_events(session_id, recorded_at, id);
 
 CREATE TABLE IF NOT EXISTS state_meta (
     key TEXT PRIMARY KEY,
