@@ -182,7 +182,10 @@ def test_route_window_excludes_rows_before_and_after(client, profile_homes):
     import time
 
     from hermes_state import SessionDB
-    from hermes_state_common import SESSION_USAGE_DETAIL_COVERAGE_KEY
+    from hermes_state_common import (
+        SESSION_USAGE_DETAIL_BASELINE_KEY,
+        SESSION_USAGE_DETAIL_COVERAGE_KEY,
+    )
 
     db = SessionDB(db_path=profile_homes["default"] / "state.db")
     try:
@@ -190,6 +193,10 @@ def test_route_window_excludes_rows_before_and_after(client, profile_homes):
         db._conn.execute(
             "UPDATE state_meta SET value = ? WHERE key = ?",
             (repr(base - 10), SESSION_USAGE_DETAIL_COVERAGE_KEY),
+        )
+        db._conn.execute(
+            "UPDATE state_meta SET value = ? WHERE key = ?",
+            (repr(base - 10), SESSION_USAGE_DETAIL_BASELINE_KEY),
         )
         db.create_session("window-api", "cli", model="m")
         for timestamp, tokens in (
@@ -248,3 +255,48 @@ def test_sqlite_busy_failure_is_retryable_not_zero(
     assert response.status_code == 503
     assert "retry" in response.json()["detail"].lower()
     assert "totals" not in response.json()
+
+
+def test_public_api_returns_capped_detail_events(client, profile_homes):
+    import time
+
+    from hermes_state import SessionDB
+
+    db = SessionDB(db_path=profile_homes["default"] / "state.db")
+    try:
+        db.create_session("many-events", "cli")
+        timestamp = time.time()
+        for _ in range(150):
+            db.update_token_counts(
+                "many-events",
+                model="safe-model",
+                billing_provider="safe-provider",
+                billing_base_url="https://private.invalid/v1",
+                input_tokens=1,
+                api_call_count=1,
+                _usage_timestamp=timestamp,
+            )
+    finally:
+        db.close()
+
+    payload = client.get("/api/sessions/many-events/usage").json()
+    assert len(payload["events"]) == 100
+    assert payload["events_truncated"] is True
+    assert payload["totals"]["input_tokens"] == 150
+    assert [row["event_id"] for row in payload["events"]] == sorted(
+        row["event_id"] for row in payload["events"]
+    )
+    serialized = json.dumps(payload)
+    assert "billing_base_url" not in serialized
+    assert "private.invalid" not in serialized
+
+
+def test_future_start_without_end_is_rejected(client, profile_homes):
+    _seed_usage(profile_homes["default"], "future-window", 1)
+
+    response = client.get(
+        "/api/sessions/future-window/usage", params={"start": 9e15}
+    )
+
+    assert response.status_code == 400
+    assert "synchronized effective end" in response.json()["detail"]

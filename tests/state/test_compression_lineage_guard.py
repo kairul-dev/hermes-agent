@@ -136,10 +136,10 @@ def test_find_live_child_returns_continuation_with_foreign_markers(
     assert child["id"] == "inherited-continuation"
 
 
-def test_compression_lineage_includes_continuation_with_foreign_markers(
+def test_exact_compression_lineage_rejects_unverifiable_foreign_markers(
     db: SessionDB,
 ) -> None:
-    """Lineage walk uses the same parent-bound marker rule as orphan recovery."""
+    """Recovery may adopt a child, but exact accounting cannot guess lineage."""
     _compression_parent(db, "delegate-session-3")
     db.create_session(
         "inherited-tip",
@@ -148,14 +148,8 @@ def test_compression_lineage_includes_continuation_with_foreign_markers(
         model_config={"_delegate_from": "some-original-parent"},
     )
 
-    assert db.get_compression_lineage("inherited-tip") == [
-        "delegate-session-3",
-        "inherited-tip",
-    ]
-    assert db.get_compression_lineage("delegate-session-3") == [
-        "delegate-session-3",
-        "inherited-tip",
-    ]
+    assert db.get_compression_lineage("inherited-tip") == []
+    assert db.get_compression_lineage("delegate-session-3") == []
 
 
 def test_reopen_orphaned_compression_session_fails_closed_with_active_lease(

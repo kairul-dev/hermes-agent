@@ -6,13 +6,32 @@ import time
 import pytest
 
 from hermes_state import SessionDB
-from hermes_state_common import SESSION_USAGE_DETAIL_COVERAGE_KEY
+from hermes_state_common import (
+    SESSION_USAGE_DETAIL_BASELINE_KEY,
+    SESSION_USAGE_DETAIL_COVERAGE_KEY,
+)
 
 
 def _set_coverage_start(db: SessionDB, value: float) -> None:
     db._conn.execute(
         "UPDATE state_meta SET value = ? WHERE key = ?",
         (repr(value), SESSION_USAGE_DETAIL_COVERAGE_KEY),
+    )
+    db._conn.execute(
+        "UPDATE state_meta SET value = ? WHERE key = ?",
+        (repr(value), SESSION_USAGE_DETAIL_BASELINE_KEY),
+    )
+    db._conn.execute("DELETE FROM session_usage_activation_baseline")
+    db._conn.execute(
+        """INSERT INTO session_usage_activation_baseline
+               (session_id, api_call_count, input_tokens, output_tokens,
+                cache_read_tokens, cache_write_tokens, reasoning_tokens,
+                estimated_cost_usd, actual_cost_usd)
+           SELECT session_id, SUM(api_call_count), SUM(input_tokens),
+                  SUM(output_tokens), SUM(cache_read_tokens),
+                  SUM(cache_write_tokens), SUM(reasoning_tokens),
+                  SUM(estimated_cost_usd), SUM(actual_cost_usd)
+           FROM session_model_usage GROUP BY session_id"""
     )
 
 
@@ -243,13 +262,13 @@ def test_historical_aggregate_is_partial_and_never_mixed_into_exact_totals(tmp_p
         db._conn.execute(
             "UPDATE sessions SET started_at = 10 WHERE id = 'historical'"
         )
-        _set_coverage_start(db, 100)
         db._conn.execute(
             """INSERT INTO session_model_usage (
                    session_id, model, billing_provider, billing_base_url,
                    billing_mode, task, api_call_count, input_tokens
                ) VALUES ('historical', 'old-model', 'provider', '', '', '', 1, 99)"""
         )
+        _set_coverage_start(db, 100)
 
         result = db.get_session_usage_detail(
             "historical", start=10, end=200
