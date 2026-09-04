@@ -179,12 +179,14 @@ def test_missing_session_and_malformed_requests(client, profile_homes):
 
 
 def test_route_window_excludes_rows_before_and_after(client, profile_homes):
+    import json
     import time
 
     from hermes_state import SessionDB
     from hermes_state_common import (
         SESSION_USAGE_DETAIL_BASELINE_KEY,
         SESSION_USAGE_DETAIL_COVERAGE_KEY,
+        SESSION_USAGE_RECONCILIATION_KEY,
     )
 
     db = SessionDB(db_path=profile_homes["default"] / "state.db")
@@ -197,6 +199,18 @@ def test_route_window_excludes_rows_before_and_after(client, profile_homes):
         db._conn.execute(
             "UPDATE state_meta SET value = ? WHERE key = ?",
             (repr(base - 10), SESSION_USAGE_DETAIL_BASELINE_KEY),
+        )
+        marker = json.loads(db._conn.execute(
+            "SELECT value FROM state_meta WHERE key = ?",
+            (SESSION_USAGE_RECONCILIATION_KEY,),
+        ).fetchone()[0])
+        marker["cutover_at"] = base - 10
+        db._conn.execute(
+            "UPDATE state_meta SET value = ? WHERE key = ?",
+            (
+                json.dumps(marker, separators=(",", ":"), sort_keys=True),
+                SESSION_USAGE_RECONCILIATION_KEY,
+            ),
         )
         db.create_session("window-api", "cli", model="m")
         for timestamp, tokens in (

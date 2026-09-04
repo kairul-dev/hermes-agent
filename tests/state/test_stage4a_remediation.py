@@ -13,6 +13,8 @@ from hermes_state import SessionDB
 from hermes_state_common import (
     SESSION_USAGE_DETAIL_BASELINE_KEY,
     SESSION_USAGE_DETAIL_COVERAGE_KEY,
+    SESSION_USAGE_RECONCILIATION_KEY,
+    parse_session_usage_reconciliation_marker,
 )
 
 
@@ -346,16 +348,20 @@ def test_upgrade_baseline_allows_exact_post_activation_window(tmp_path):
         "VALUES ('historical', 'old', 'p', '', '', '', 1, 99)"
     )
     db._conn.execute(
-        "DELETE FROM state_meta WHERE key IN (?, ?)",
-        (SESSION_USAGE_DETAIL_COVERAGE_KEY, SESSION_USAGE_DETAIL_BASELINE_KEY),
+        "DELETE FROM state_meta WHERE key IN (?, ?, ?)",
+        (
+            SESSION_USAGE_DETAIL_COVERAGE_KEY,
+            SESSION_USAGE_DETAIL_BASELINE_KEY,
+            SESSION_USAGE_RECONCILIATION_KEY,
+        ),
     )
     db.close()
 
     db = SessionDB(db_path=path)
-    activation = float(db._conn.execute(
+    activation = parse_session_usage_reconciliation_marker(db._conn.execute(
         "SELECT value FROM state_meta WHERE key = ?",
-        (SESSION_USAGE_DETAIL_COVERAGE_KEY,),
-    ).fetchone()[0])
+        (SESSION_USAGE_RECONCILIATION_KEY,),
+    ).fetchone()[0])["cutover_at"]
     _record(db, "historical", 1, timestamp=activation)
 
     after = db.get_session_usage_detail(
@@ -441,12 +447,12 @@ def test_partial_activation_metadata_fails_before_writable_use(tmp_path):
     conn = sqlite3.connect(path)
     conn.execute(
         "UPDATE state_meta SET value = '123' WHERE key = ?",
-        (SESSION_USAGE_DETAIL_BASELINE_KEY,),
+        (SESSION_USAGE_RECONCILIATION_KEY,),
     )
     conn.commit()
     conn.close()
 
-    with pytest.raises(RuntimeError, match="activation metadata"):
+    with pytest.raises(RuntimeError, match="trusted session usage cutover"):
         SessionDB(db_path=path)
 
 

@@ -1,5 +1,6 @@
 """Forward-only detailed session usage service contracts."""
 
+import json
 import sqlite3
 import time
 
@@ -9,10 +10,44 @@ from hermes_state import SessionDB
 from hermes_state_common import (
     SESSION_USAGE_DETAIL_BASELINE_KEY,
     SESSION_USAGE_DETAIL_COVERAGE_KEY,
+    SESSION_USAGE_RECONCILIATION_KEY,
+    SESSION_USAGE_RECONCILIATION_METRIC_FIELDS,
+    SESSION_USAGE_RECONCILIATION_ROUTE_FIELDS,
+    session_usage_reconciliation_baseline_digest,
 )
 
 
 def _set_coverage_start(db: SessionDB, value: float) -> None:
+    route_fields = SESSION_USAGE_RECONCILIATION_ROUTE_FIELDS
+    metric_fields = SESSION_USAGE_RECONCILIATION_METRIC_FIELDS
+    projection = ", ".join((*route_fields, *metric_fields))
+    db._conn.execute("DELETE FROM session_usage_reconciliation_baseline")
+    db._conn.execute(
+        "INSERT INTO session_usage_reconciliation_baseline "
+        f"({projection}) SELECT {projection} FROM session_model_usage"
+    )
+    baseline_rows = db._conn.execute(
+        f"SELECT {projection} FROM session_usage_reconciliation_baseline"
+    ).fetchall()
+    event_id_high_water = db._conn.execute(
+        "SELECT COALESCE(MAX(id), 0) FROM session_usage_events"
+    ).fetchone()[0]
+    marker = {
+        "version": 2,
+        "cutover_at": value,
+        "event_id_high_water": event_id_high_water,
+        "baseline_row_count": len(baseline_rows),
+        "baseline_sha256": session_usage_reconciliation_baseline_digest(
+            baseline_rows
+        ),
+    }
+    db._conn.execute(
+        "UPDATE state_meta SET value = ? WHERE key = ?",
+        (
+            json.dumps(marker, separators=(",", ":"), sort_keys=True),
+            SESSION_USAGE_RECONCILIATION_KEY,
+        ),
+    )
     db._conn.execute(
         "UPDATE state_meta SET value = ? WHERE key = ?",
         (repr(value), SESSION_USAGE_DETAIL_COVERAGE_KEY),
