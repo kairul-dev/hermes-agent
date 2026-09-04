@@ -93,6 +93,7 @@ from hermes_state_common import (  # noqa: F401  (re-exported for back-compat)
     MAX_FTS5_QUERY_CHARS,
     SCHEMA_SQL,
     SCHEMA_VERSION,
+    SESSION_USAGE_DETAIL_BASELINE_KEY,
     SESSION_USAGE_DETAIL_COVERAGE_KEY,
     _PREVIEW_CONTENT_SQL,
     _PREVIEW_HEAD_CHARS,
@@ -121,6 +122,56 @@ MAX_SAFE_EXPORT_MESSAGES = 20_000
 SESSION_USAGE_DETAIL_CAPABILITY = "session.usage.detail.v1"
 MAX_SESSION_USAGE_ROUTES = 100
 MAX_SESSION_USAGE_LINEAGE = 256
+_USAGE_COUNT_FIELDS = (
+    "api_call_count",
+    "input_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
+    "reasoning_tokens",
+)
+_USAGE_COST_FIELDS = ("estimated_cost_usd", "actual_cost_usd")
+
+
+def _normalize_usage_values(values: Dict[str, Any]) -> Dict[str, Any]:
+    """Return validated exact-accounting values without SQLite coercion."""
+    normalized = dict(values)
+    for field in _USAGE_COUNT_FIELDS:
+        if field not in normalized:
+            continue
+        value = normalized[field]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"{field} must be a non-negative integer")
+        normalized[field] = int(value)
+    for field in _USAGE_COST_FIELDS:
+        if field not in normalized or normalized[field] is None:
+            continue
+        value = normalized[field]
+        if isinstance(value, bool):
+            raise ValueError(f"{field} must be a finite number")
+        try:
+            value = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{field} must be a finite number") from exc
+        if not math.isfinite(value):
+            raise ValueError(f"{field} must be a finite number")
+        normalized[field] = value
+    if "_usage_timestamp" in normalized and normalized["_usage_timestamp"] is not None:
+        try:
+            timestamp = float(normalized["_usage_timestamp"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("_usage_timestamp must be a finite non-negative timestamp") from exc
+        if not math.isfinite(timestamp) or timestamp < 0:
+            raise ValueError("_usage_timestamp must be a finite non-negative timestamp")
+        normalized["_usage_timestamp"] = timestamp
+    if normalized.get("_usage_events") is not None:
+        events = normalized["_usage_events"]
+        if not isinstance(events, list):
+            raise ValueError("_usage_events must be a list")
+        normalized["_usage_events"] = [
+            _normalize_usage_values(dict(event)) for event in events
+        ]
+    return normalized
 
 # Auto-maintenance only VACUUMs when at least this fraction of the database
 # file is reclaimable (``PRAGMA freelist_count / PRAGMA page_count``). Below
@@ -5360,6 +5411,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         # flight during the drain closes its own connection instead of
         # re-populating a pool nobody will drain again.
         self._read_conns_closed = False
+        self._usage_snapshot_local = threading.local()
         # "read-only opens are failing against this file" backoff stamp.
         # Instance-wide rather than per-thread: with a shared pool the open
         # is no longer a per-thread event, and retrying a known-bad open on
@@ -5414,6 +5466,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         self._token_writer_thread: Optional[threading.Thread] = None
         self._token_writer_stop = False
         self._token_writer_busy = False
+        self._token_writer_error: Optional[BaseException] = None
         self._token_atexit_hook: Optional[Callable[[], None]] = None
         # Set True when this instance is opened via get_shared_session_db().
         # Makes close() a no-op so the registry (not individual callers)
@@ -5867,6 +5920,10 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         slower under a burst, and the alternative is EMFILE, which takes the
         whole process down in a way a restart-on-exit supervisor cannot see.
         """
+        snapshot_conn = getattr(self._usage_snapshot_local, "conn", None)
+        if snapshot_conn is not None:
+            yield snapshot_conn
+            return
         conn = self._checkout_read_conn()
         if conn is not None:
             try:
@@ -6924,7 +6981,10 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
 
             release(self)
             return
-        self._stop_token_writer()
+        if not self._stop_token_writer():
+            raise RuntimeError(
+                "session accounting shutdown failed; queued usage remains retryable"
+            ) from self._token_writer_error
         hook, self._token_atexit_hook = self._token_atexit_hook, None
         if hook is not None:
             atexit.unregister(hook)
@@ -10017,7 +10077,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         # Capture event time on the producer thread. The writer can be delayed
         # or coalesce several deltas, but the detailed ledger must retain when
         # each accounting event entered the authoritative queue.
-        kwargs = dict(kwargs)
+        kwargs = _normalize_usage_values(kwargs)
         kwargs.setdefault("_usage_timestamp", time.time())
         with self._token_queue_cond:
             thread = self._token_writer_thread
@@ -10066,10 +10126,9 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
     def flush_token_counts(self, timeout: float = 5.0) -> bool:
         """Block until every queued token delta has been applied.
 
-        Returns True when the queue is fully drained, False on timeout
-        (callers then read totals that are stale by the still-queued
-        deltas — no worse than reading before the flush existed).
-        Never raises: apply failures are logged by the writer.
+        Returns True only when the queue is fully and successfully drained.
+        Timeout and apply failure both return False; failed, uncommitted work
+        remains at the head of the queue for an ordered retry.
         """
         # Fast path — nothing queued, nothing in flight.
         if not self._token_queue and not self._token_writer_busy:
@@ -10107,12 +10166,15 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                 self._token_queue_cond.wait(remaining)
         if batch:
             try:
-                self._apply_token_batch(batch)
+                failed = self._apply_token_batch(batch)
             finally:
                 with self._token_queue_cond:
+                    if failed:
+                        self._token_queue.extendleft(reversed(failed))
                     self._token_writer_busy = False
                     self._token_queue_cond.notify_all()
-        return True
+            return not failed
+        return not self._token_queue and not self._token_writer_busy
 
     def _token_writer_loop(self) -> None:
         while True:
@@ -10137,15 +10199,20 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                 self._token_writer_busy = True
                 batch = list(self._token_queue)
                 self._token_queue.clear()
-            try:
-                self._apply_token_batch(batch)
-            finally:
-                with self._token_queue_cond:
-                    self._token_writer_busy = False
-                    self._token_queue_cond.notify_all()
+            failed = self._apply_token_batch(batch)
+            with self._token_queue_cond:
+                if failed:
+                    self._token_queue.extendleft(reversed(failed))
+                self._token_writer_busy = False
+                self._token_queue_cond.notify_all()
+                if failed:
+                    self._token_writer_thread = None
+                    return
 
-    def _apply_token_batch(self, batch: List[Tuple[str, Dict[str, Any]]]) -> None:
-        """Apply queued deltas in order, coalescing where safe. Never raises."""
+    def _apply_token_batch(
+        self, batch: List[Tuple[str, Dict[str, Any]]]
+    ) -> List[Tuple[str, Dict[str, Any]]]:
+        """Apply a batch and return its ordered, uncommitted suffix."""
         try:
             coalesced = self._coalesce_token_deltas(batch)
         except Exception as exc:
@@ -10157,16 +10224,18 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                 "batch: %s", exc,
             )
             coalesced = batch
-        for session_id, kwargs in coalesced:
+        for index, (session_id, kwargs) in enumerate(coalesced):
             try:
                 self.update_token_counts(session_id, **kwargs)
             except Exception as exc:
-                # Same contract as the old inline call sites: accounting
-                # loss is logged, never raised into a turn.
+                self._token_writer_error = exc
                 logger.warning(
                     "async token accounting: apply failed (session=%s): %s",
                     session_id, exc,
                 )
+                return coalesced[index:]
+        self._token_writer_error = None
+        return []
 
     def _coalesce_token_deltas(
         self, batch: List[Tuple[str, Dict[str, Any]]]
@@ -10187,7 +10256,8 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                 )
             if groups and key is not None and groups[-1][0] == key:
                 merged = groups[-1][2]
-                merged.setdefault("_usage_events", []).append(event)
+                new_events = kwargs.get("_usage_events") or [event]
+                merged.setdefault("_usage_events", []).extend(new_events)
                 for f in self._TOKEN_DELTA_SUM_FIELDS:
                     merged[f] = merged.get(f, 0) + kwargs.get(f, 0)
                 for f in self._TOKEN_DELTA_COST_FIELDS:
@@ -10198,13 +10268,13 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                         merged[f] = (merged.get(f) or 0.0) + value
             else:
                 merged = dict(kwargs)
-                if key is not None:
+                if key is not None and not merged.get("_usage_events"):
                     merged["_usage_events"] = [event]
                 groups.append((key, session_id, merged))
         return [(sid, kw) for _, sid, kw in groups]
 
-    def _stop_token_writer(self, join_timeout: float = 10.0) -> None:
-        """Stop the writer thread and drain remaining deltas. Never raises."""
+    def _stop_token_writer(self, join_timeout: float = 10.0) -> bool:
+        """Stop the writer and return whether every queued delta committed."""
         with self._token_queue_cond:
             self._token_writer_stop = True
             self._token_queue_cond.notify_all()
@@ -10220,7 +10290,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                     "%d queued delta(s) not persisted",
                     join_timeout, len(self._token_queue),
                 )
-                return
+                return False
         # Writer exited (or never started) — apply leftovers synchronously.
         # Claim busy like the writer/flush drains do, so a concurrent
         # flush_token_counts cannot fast-path True while this batch is
@@ -10237,7 +10307,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                         "finish within %.0fs; %d queued delta(s) not persisted",
                         join_timeout, len(self._token_queue),
                     )
-                    return
+                    return False
                 self._token_queue_cond.wait(remaining)
             # busy is claimed BEFORE the queue is cleared — same ordering
             # as the writer loop and the flush caller-drain. The lock-free
@@ -10251,17 +10321,26 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                 self._token_queue.clear()
         if batch:
             try:
-                self._apply_token_batch(batch)
+                failed = self._apply_token_batch(batch)
             finally:
                 with self._token_queue_cond:
+                    if failed:
+                        self._token_queue.extendleft(reversed(failed))
                     self._token_writer_busy = False
                     self._token_queue_cond.notify_all()
+            return not failed
+        return not self._token_queue
 
     def _drain_token_queue_at_exit(self) -> None:
         try:
-            self._stop_token_writer()
+            if not self._stop_token_writer():
+                logger.error(
+                    "async token accounting: shutdown drain failed; %d "
+                    "delta(s) remain uncommitted",
+                    len(self._token_queue),
+                )
         except Exception:
-            pass  # Best effort — never fatal at interpreter shutdown.
+            logger.exception("async token accounting: shutdown drain failed")
 
     def update_token_counts(
         self,
@@ -10294,6 +10373,28 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         the caller already holds cumulative totals (gateway path, where the
         cached agent accumulates across messages).
         """
+        normalized = _normalize_usage_values({
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cache_read_tokens": cache_read_tokens,
+            "cache_write_tokens": cache_write_tokens,
+            "reasoning_tokens": reasoning_tokens,
+            "estimated_cost_usd": estimated_cost_usd,
+            "actual_cost_usd": actual_cost_usd,
+            "api_call_count": api_call_count,
+            "_usage_timestamp": _usage_timestamp,
+            "_usage_events": _usage_events,
+        })
+        input_tokens = normalized["input_tokens"]
+        output_tokens = normalized["output_tokens"]
+        cache_read_tokens = normalized["cache_read_tokens"]
+        cache_write_tokens = normalized["cache_write_tokens"]
+        reasoning_tokens = normalized["reasoning_tokens"]
+        estimated_cost_usd = normalized["estimated_cost_usd"]
+        actual_cost_usd = normalized["actual_cost_usd"]
+        api_call_count = normalized["api_call_count"]
+        _usage_timestamp = normalized["_usage_timestamp"]
+        _usage_events = normalized["_usage_events"]
         # Ensure the session row exists so the UPDATE doesn't silently affect
         # 0 rows.  Under concurrent load (cron + kanban + delegate_task) the
         # initial create_session() may have failed due to SQLite locking.
@@ -10636,6 +10737,15 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         """
         if not session_id or not task:
             return
+        normalized = _normalize_usage_values({
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cache_read_tokens": cache_read_tokens,
+            "cache_write_tokens": cache_write_tokens,
+            "reasoning_tokens": reasoning_tokens,
+            "estimated_cost_usd": estimated_cost_usd,
+            "api_call_count": 1 if api_call_count is None else api_call_count,
+        })
         # FK on session_model_usage.session_id → sessions.id: ensure the row
         # exists (same INSERT OR IGNORE guard update_token_counts uses — the
         # initial create_session() can fail under concurrent SQLite locking).
@@ -10649,21 +10759,65 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                 billing_provider=billing_provider,
                 billing_base_url=billing_base_url,
                 billing_mode=None,
-                input_tokens=input_tokens or 0,
-                output_tokens=output_tokens or 0,
-                cache_read_tokens=cache_read_tokens or 0,
-                cache_write_tokens=cache_write_tokens or 0,
-                reasoning_tokens=reasoning_tokens or 0,
-                estimated_cost_usd=estimated_cost_usd,
+                input_tokens=normalized["input_tokens"],
+                output_tokens=normalized["output_tokens"],
+                cache_read_tokens=normalized["cache_read_tokens"],
+                cache_write_tokens=normalized["cache_write_tokens"],
+                reasoning_tokens=normalized["reasoning_tokens"],
+                estimated_cost_usd=normalized["estimated_cost_usd"],
                 actual_cost_usd=None,
                 cost_status=None,
                 cost_source=None,
-                api_call_count=(
-                    1 if api_call_count is None else int(api_call_count)
-                ),
+                api_call_count=normalized["api_call_count"],
                 task=task,
             )
         self._execute_write(_do)
+
+    def _synchronize_usage_accounting(self, session_id: str) -> Optional[str]:
+        """Flush every live writer for this exact profile database."""
+        try:
+            from hermes_state_registry import live_shared_session_dbs
+
+            try:
+                own_path = Path(self.db_path).resolve()
+            except OSError:
+                own_path = Path(self.db_path)
+            for live_db in live_shared_session_dbs():
+                try:
+                    live_path = Path(live_db.db_path).resolve()
+                except OSError:
+                    live_path = Path(live_db.db_path)
+                if live_path == own_path and live_db is not self:
+                    if not live_db.flush_token_counts():
+                        return "accounting_flush_failed"
+        except Exception:
+            logger.warning(
+                "session usage read could not flush shared accounting for %s",
+                session_id,
+                exc_info=True,
+            )
+            return "accounting_flush_failed"
+        if not self.flush_token_counts():
+            return "accounting_flush_failed"
+        return None
+
+    @contextmanager
+    def _usage_read_snapshot(self) -> Iterator[float]:
+        """Pin all nested read helpers to one established SQLite snapshot."""
+        with self._read_ctx() as conn:
+            conn.execute("BEGIN")
+            try:
+                # BEGIN is deferred; this read establishes the snapshot before
+                # the synchronized effective end is captured.
+                conn.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone()
+                self._usage_snapshot_local.conn = conn
+                read_at = time.time()
+                self._usage_snapshot_local.read_at = read_at
+                yield read_at
+            finally:
+                self._usage_snapshot_local.__dict__.clear()
+                if conn.in_transaction:
+                    conn.rollback()
 
     def get_session_usage_detail(
         self,
@@ -10754,46 +10908,27 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                     "exact_start": None,
                     "exact_end": None,
                 },
+                "events": [],
+                "events_truncated": False,
+                "event_limit": route_limit,
                 "routes": [],
                 "routes_truncated": False,
                 "totals": None,
             }
 
-        # Long-lived agents use the process-wide shared SessionDB registry.
-        # A dashboard read may hold a separate read-only handle, so flush every
-        # live shared writer for this exact DB path before taking the snapshot.
-        # This reuses the existing accounting queue and synchronization point;
-        # it never creates a second queue or borrows a different profile.
-        try:
-            from hermes_state_registry import live_shared_session_dbs
-
-            try:
-                own_path = Path(self.db_path).resolve()
-            except OSError:
-                own_path = Path(self.db_path)
-            for live_db in live_shared_session_dbs():
-                try:
-                    live_path = Path(live_db.db_path).resolve()
-                except OSError:
-                    live_path = Path(live_db.db_path)
-                if live_path == own_path and live_db is not self:
-                    if not live_db.flush_token_counts():
-                        return _unavailable("accounting_flush_timeout")
-        except Exception:
-            logger.warning(
-                "session usage read could not flush shared accounting for %s",
-                session_id,
-                exc_info=True,
-            )
-            return _unavailable("accounting_flush_failed")
-        if not self.flush_token_counts():
-            return _unavailable("accounting_flush_timeout")
-
-        # The snapshot boundary is taken AFTER the synchronization point.
-        # Windows' wall clock can return the same float for consecutive calls;
-        # capturing it before the drain made a pre-existing queued event land
-        # exactly on the end-exclusive boundary and disappear from this read.
-        read_at = time.time()
+        if getattr(self._usage_snapshot_local, "conn", None) is None:
+            failure = self._synchronize_usage_accounting(session_id)
+            if failure:
+                return _unavailable(failure)
+            with self._usage_read_snapshot():
+                return self.get_session_usage_detail(
+                    session_id,
+                    scope=scope,
+                    start=start,
+                    end=end,
+                    route_limit=route_limit,
+                )
+        read_at = self._usage_snapshot_local.read_at
 
         session = self.get_session(session_id)
         if session is None:
@@ -10801,38 +10936,15 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
 
         session_ids = [session_id]
         if scope == "compression_lineage":
-            session_ids = self.get_compression_lineage(session_id)
-            if not session_ids or session_id not in session_ids:
-                return _unavailable("compression_lineage_unavailable")
+            with self._read_ctx() as conn:
+                session_ids, lineage_error = (
+                    self._resolve_compression_lineage_snapshot(conn, session_id)
+                )
+            if lineage_error or not session_ids or session_id not in session_ids:
+                return _unavailable("ambiguous_compression_lineage")
             if len(session_ids) > MAX_SESSION_USAGE_LINEAGE:
                 return _unavailable(
                     "compression_lineage_too_large", ids=session_ids[:1]
-                )
-
-            # get_compression_lineage uses Hermes' canonical edge classifier.
-            # It historically picks the first continuation if corrupt/legacy
-            # data presents two eligible children. Detect that ambiguity here
-            # and fail closed rather than returning one arbitrary path.
-            placeholders = ",".join("?" for _ in session_ids)
-            with self._read_ctx() as conn:
-                children = conn.execute(
-                    f"SELECT child.* FROM sessions child "
-                    f"JOIN sessions parent ON parent.id = child.parent_session_id "
-                    f"WHERE parent.id IN ({placeholders}) "
-                    "AND parent.end_reason = 'compression' "
-                    "ORDER BY child.parent_session_id, child.started_at, child.id",
-                    session_ids,
-                ).fetchall()
-            by_parent: Dict[str, int] = {}
-            for row in children:
-                child = dict(row)
-                if self._is_explicit_fork_child_row(child):
-                    continue
-                parent_id = str(child.get("parent_session_id") or "")
-                by_parent[parent_id] = by_parent.get(parent_id, 0) + 1
-            if any(count > 1 for count in by_parent.values()):
-                return _unavailable(
-                    "ambiguous_compression_lineage", ids=session_ids
                 )
 
         placeholders = ",".join("?" for _ in session_ids)
@@ -10840,6 +10952,11 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
             "id", "session_id", "recorded_at", "model",
             "billing_provider", "billing_base_url", "billing_mode", "task",
             "api_call_count", "input_tokens", "output_tokens",
+            "cache_read_tokens", "cache_write_tokens", "reasoning_tokens",
+            "estimated_cost_usd", "actual_cost_usd",
+        }
+        baseline_columns = {
+            "session_id", "api_call_count", "input_tokens", "output_tokens",
             "cache_read_tokens", "cache_write_tokens", "reasoning_tokens",
             "estimated_cost_usd", "actual_cost_usd",
         }
@@ -10862,9 +10979,31 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                 return _unavailable(
                     "detail_schema_incompatible", ids=session_ids
                 )
+            baseline_table = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                "AND name = 'session_usage_activation_baseline'"
+            ).fetchone()
+            if baseline_table is None:
+                return _unavailable(
+                    "activation_baseline_unavailable", ids=session_ids
+                )
+            baseline_shape = {
+                str(row[1])
+                for row in conn.execute(
+                    'PRAGMA table_info("session_usage_activation_baseline")'
+                ).fetchall()
+            }
+            if not baseline_columns.issubset(baseline_shape):
+                return _unavailable(
+                    "activation_baseline_incompatible", ids=session_ids
+                )
             marker = conn.execute(
                 "SELECT value FROM state_meta WHERE key = ?",
                 (SESSION_USAGE_DETAIL_COVERAGE_KEY,),
+            ).fetchone()
+            baseline_marker = conn.execute(
+                "SELECT value FROM state_meta WHERE key = ?",
+                (SESSION_USAGE_DETAIL_BASELINE_KEY,),
             ).fetchone()
             started_row = conn.execute(
                 f"SELECT MIN(started_at) FROM sessions "
@@ -10872,17 +11011,23 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                 session_ids,
             ).fetchone()
 
-        if marker is None:
+        if marker is None or baseline_marker is None:
             return _unavailable(
                 "coverage_start_unknown", ids=session_ids
             )
         try:
             detail_started_at = float(marker[0])
+            baseline_started_at = float(baseline_marker[0])
         except (TypeError, ValueError):
             return _unavailable(
                 "coverage_start_invalid", ids=session_ids
             )
-        if not math.isfinite(detail_started_at) or detail_started_at < 0:
+        if (
+            not math.isfinite(detail_started_at)
+            or detail_started_at < 0
+            or not math.isfinite(baseline_started_at)
+            or baseline_started_at != detail_started_at
+        ):
             return _unavailable(
                 "coverage_start_invalid", ids=session_ids
             )
@@ -10890,6 +11035,10 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         session_started_at = float(started_row[0] or session.get("started_at") or 0)
         requested_start = start if start is not None else session_started_at
         effective_end = min(end, read_at) if end is not None else read_at
+        if requested_start > effective_end:
+            raise ValueError(
+                "start must be less than or equal to the synchronized effective end"
+            )
         if effective_end <= detail_started_at and requested_start < detail_started_at:
             return _unavailable(
                 "requested_window_precedes_detail",
@@ -10919,11 +11068,60 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
             f"COALESCE(SUM({field}), 0) AS {field}"
             for field in metric_fields
         )
+        count_fields = metric_fields[:6]
+        invalid_counts = " OR ".join(
+            f"typeof({field}) != 'integer' OR {field} < 0"
+            for field in count_fields
+        )
+        invalid_costs = " OR ".join(
+            f"typeof({field}) NOT IN ('integer', 'real') "
+            f"OR {field} < -1.7976931348623157e308 "
+            f"OR {field} > 1.7976931348623157e308"
+            for field in metric_fields[6:]
+        )
         with self._read_ctx() as conn:
+            invalid_detail = conn.execute(
+                f"SELECT 1 FROM session_usage_events "
+                f"WHERE session_id IN ({placeholders}) AND ("
+                f"{invalid_counts} OR {invalid_costs} OR "
+                "typeof(recorded_at) NOT IN ('integer', 'real') OR "
+                "recorded_at < 0 OR recorded_at > 1.7976931348623157e308) "
+                "LIMIT 1",
+                session_ids,
+            ).fetchone()
+            invalid_aggregate = conn.execute(
+                f"SELECT 1 FROM session_model_usage "
+                f"WHERE session_id IN ({placeholders}) "
+                f"AND ({invalid_counts} OR {invalid_costs}) LIMIT 1",
+                session_ids,
+            ).fetchone()
+            invalid_baseline = conn.execute(
+                f"SELECT 1 FROM session_usage_activation_baseline "
+                f"WHERE session_id IN ({placeholders}) "
+                f"AND ({invalid_counts} OR {invalid_costs}) LIMIT 1",
+                session_ids,
+            ).fetchone()
+            if invalid_detail or invalid_aggregate or invalid_baseline:
+                return _unavailable(
+                    "usage_storage_integrity_failure", ids=session_ids
+                )
             total_row = conn.execute(
                 f"SELECT {sums} FROM session_usage_events WHERE {where}",
                 params,
             ).fetchone()
+            event_rows = conn.execute(
+                f"""SELECT id AS event_id, session_id, recorded_at, task,
+                            model, billing_provider, billing_mode,
+                            api_call_count, input_tokens, output_tokens,
+                            cache_read_tokens, cache_write_tokens,
+                            reasoning_tokens, estimated_cost_usd,
+                            actual_cost_usd
+                     FROM session_usage_events
+                     WHERE {where}
+                     ORDER BY recorded_at, id
+                     LIMIT ?""",
+                [*params, route_limit + 1],
+            ).fetchall()
             route_rows = conn.execute(
                 f"""SELECT task, model, billing_provider, billing_mode,
                             {sums},
@@ -10941,22 +11139,30 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                 f"WHERE session_id IN ({placeholders})",
                 session_ids,
             ).fetchone()
-            lifetime_detail_row = conn.execute(
-                f"SELECT {sums} FROM session_usage_events "
+            baseline_row = conn.execute(
+                f"SELECT {sums} FROM session_usage_activation_baseline "
                 f"WHERE session_id IN ({placeholders})",
                 session_ids,
             ).fetchone()
+            post_activation_detail_row = conn.execute(
+                f"SELECT {sums} FROM session_usage_events "
+                f"WHERE session_id IN ({placeholders}) AND recorded_at >= ?",
+                [*session_ids, detail_started_at],
+            ).fetchone()
 
         totals = dict(total_row)
+        events_truncated = len(event_rows) > route_limit
+        events = [dict(row) for row in event_rows[:route_limit]]
         routes_truncated = len(route_rows) > route_limit
         routes = [dict(row) for row in route_rows[:route_limit]]
         aggregate = dict(aggregate_row)
-        lifetime_detail = dict(lifetime_detail_row)
+        baseline = dict(baseline_row)
+        post_activation_detail = dict(post_activation_detail_row)
 
         mismatch = False
         for field in metric_fields:
-            left = aggregate.get(field) or 0
-            right = lifetime_detail.get(field) or 0
+            left = (aggregate.get(field) or 0) - (baseline.get(field) or 0)
+            right = post_activation_detail.get(field) or 0
             if field.endswith("_usd"):
                 if not math.isclose(float(left), float(right), rel_tol=1e-9, abs_tol=1e-12):
                     mismatch = True
@@ -10969,21 +11175,21 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         aggregate_has_usage = any(
             (aggregate.get(field) or 0) != 0 for field in metric_fields
         )
+        historical_aggregate_available = any(
+            (baseline.get(field) or 0) != 0 for field in metric_fields
+        )
         status = "COMPLETE"
         reason = "exact_detail_available" if has_exact_usage else "exact_detail_available_no_usage"
         if mismatch:
             status = "PARTIAL"
-            reason = (
-                "historical_aggregate_only"
-                if aggregate_has_usage and not any(
-                    (lifetime_detail.get(field) or 0) != 0
-                    for field in metric_fields
-                )
-                else "aggregate_detail_mismatch"
-            )
+            reason = "aggregate_detail_mismatch"
         elif requested_start < detail_started_at:
             status = "PARTIAL"
-            reason = "exact_detail_begins_after_window_start"
+            reason = (
+                "historical_aggregate_only"
+                if historical_aggregate_available and not has_exact_usage
+                else "exact_detail_begins_after_window_start"
+            )
         elif end is not None and end > read_at:
             status = "PARTIAL"
             reason = "requested_window_not_yet_complete"
@@ -11000,8 +11206,11 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                 "detail_started_at": detail_started_at,
                 "exact_start": exact_start,
                 "exact_end": effective_end,
-                "historical_aggregate_available": aggregate_has_usage,
+                "historical_aggregate_available": historical_aggregate_available,
             },
+            "events": events,
+            "events_truncated": events_truncated,
+            "event_limit": route_limit,
             "routes": routes,
             "routes_truncated": routes_truncated,
             "totals": totals,
@@ -15676,57 +15885,157 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         generation = int(row["generation"])
         return generation if generation > 0 else None
 
-    def _is_compression_child_row(self, child: Dict[str, Any]) -> bool:
-        parent_id = child.get("parent_session_id")
-        if not parent_id or self._is_explicit_fork_child_row(child):
-            return False
-        parent = self.get_session(parent_id)
-        return bool(parent and parent.get("end_reason") == "compression")
+    @staticmethod
+    def _usage_lineage_markers(
+        session: Dict[str, Any],
+    ) -> Tuple[Optional[Dict[str, str]], Optional[str]]:
+        """Parse durable fork markers for exact lineage classification."""
+        raw = session.get("model_config")
+        if raw in (None, ""):
+            return {}, None
+        try:
+            config = json.loads(raw) if isinstance(raw, str) else raw
+        except (TypeError, json.JSONDecodeError):
+            return None, "malformed_model_config"
+        if not isinstance(config, dict):
+            return None, "malformed_model_config"
+        markers: Dict[str, str] = {}
+        for name in ("_branched_from", "_delegate_from"):
+            value = config.get(name)
+            if value is None:
+                continue
+            if not isinstance(value, str) or not value.strip():
+                return None, "malformed_lineage_marker"
+            markers[name] = value
+        if len(markers) > 1:
+            return None, "conflicting_lineage_markers"
+        return markers, None
 
-    def get_compression_lineage(self, session_id: str) -> List[str]:
-        """Return compression ancestors through tip in chronological order."""
-        session = self.get_session(session_id)
-        if not session or self._is_explicit_fork_child_row(session):
-            return [session_id] if session else []
+    def _classify_usage_lineage_edge(
+        self,
+        conn: sqlite3.Connection,
+        child: Dict[str, Any],
+        parent: Dict[str, Any],
+    ) -> Tuple[str, Optional[str]]:
+        """Classify one parent link as compression, ordinary, or invalid."""
+        child_id = str(child.get("id") or "")
+        parent_id = str(parent.get("id") or "")
+        if not child_id or not parent_id or child_id == parent_id:
+            return "invalid", "cyclic_compression_lineage"
+        if child.get("parent_session_id") != parent_id:
+            return "invalid", "conflicting_predecessor"
 
-        root = session
-        ancestors = {root["id"]}
-        while self._is_compression_child_row(root):
-            parent = self.get_session(root["parent_session_id"])
-            if not parent or parent["id"] in ancestors:
+        child_markers, child_error = self._usage_lineage_markers(child)
+        parent_markers, parent_error = self._usage_lineage_markers(parent)
+        if child_error or parent_error:
+            return "invalid", child_error or parent_error
+        assert child_markers is not None and parent_markers is not None
+
+        direct_fork = any(value == parent_id for value in child_markers.values())
+        if direct_fork:
+            return "ordinary", None
+
+        if child.get("source") == "tool":
+            if not (
+                parent.get("end_reason") == "compression"
+                and parent.get("source") == "tool"
+                and child_markers == parent_markers
+            ):
+                return "ordinary", None
+
+        if child_markers != parent_markers:
+            return "invalid", "conflicting_predecessor_metadata"
+        for marker_target in child_markers.values():
+            if marker_target in {child_id, parent_id}:
+                return "invalid", "malformed_self_link"
+            if conn.execute(
+                "SELECT 1 FROM sessions WHERE id = ?", (marker_target,)
+            ).fetchone() is None:
+                return "invalid", "dangling_lineage_marker"
+
+        if parent.get("end_reason") != "compression":
+            return "ordinary", None
+        try:
+            if float(child.get("started_at") or 0) < float(
+                parent.get("started_at") or 0
+            ):
+                return "invalid", "incompatible_successor"
+        except (TypeError, ValueError):
+            return "invalid", "incompatible_successor"
+        return "compression", None
+
+    def _resolve_compression_lineage_snapshot(
+        self, conn: sqlite3.Connection, session_id: str
+    ) -> Tuple[List[str], Optional[str]]:
+        row = conn.execute(
+            "SELECT * FROM sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+        if row is None:
+            return [], None
+
+        root = dict(row)
+        seen = {session_id}
+        while root.get("parent_session_id"):
+            parent_row = conn.execute(
+                "SELECT * FROM sessions WHERE id = ?",
+                (root["parent_session_id"],),
+            ).fetchone()
+            if parent_row is None:
+                return [], "dangling_predecessor"
+            parent = dict(parent_row)
+            relation, error = self._classify_usage_lineage_edge(conn, root, parent)
+            if error:
+                return [], error
+            if relation != "compression":
                 break
+            if parent["id"] in seen:
+                return [], "cyclic_compression_lineage"
+            seen.add(parent["id"])
             root = parent
-            ancestors.add(root["id"])
+            if len(seen) > MAX_SESSION_USAGE_LINEAGE:
+                return [], "compression_lineage_too_large"
 
         lineage = [root["id"]]
         seen = {root["id"]}
         current = root
         while current.get("end_reason") == "compression":
-            with self._read_ctx() as conn:
-                rows = conn.execute(
-                    """
-                    SELECT * FROM sessions
-                    WHERE parent_session_id = ?
-                    ORDER BY started_at ASC
-                    """,
-                    (current["id"],),
-                ).fetchall()
-            next_child = None
-            for row in rows:
-                candidate = dict(row)
-                if self._is_compression_child_row(candidate):
-                    next_child = candidate
-                    break
-            if not next_child or next_child["id"] in seen:
-                break
-            lineage.append(next_child["id"])
-            seen.add(next_child["id"])
-            current = next_child
-            if current["id"] == session_id:
-                # Continue to include later compression tips only when the
-                # requested session itself was compacted.
-                continue
-        return lineage if session_id in lineage else [session_id]
+            rows = conn.execute(
+                "SELECT * FROM sessions WHERE parent_session_id = ? "
+                "ORDER BY started_at, id",
+                (current["id"],),
+            ).fetchall()
+            successors = []
+            for child_row in rows:
+                child = dict(child_row)
+                relation, error = self._classify_usage_lineage_edge(
+                    conn, child, current
+                )
+                if error:
+                    return [], error
+                if relation == "compression":
+                    successors.append(child)
+            if len(successors) != 1:
+                return [], (
+                    "dangling_compression_successor"
+                    if not successors
+                    else "conflicting_compression_successors"
+                )
+            current = successors[0]
+            if current["id"] in seen:
+                return [], "cyclic_compression_lineage"
+            lineage.append(current["id"])
+            seen.add(current["id"])
+            if len(lineage) > MAX_SESSION_USAGE_LINEAGE:
+                return [], "compression_lineage_too_large"
+        return lineage, None
+
+    def get_compression_lineage(self, session_id: str) -> List[str]:
+        """Return an exact compression chain, or ``[]`` when ambiguous."""
+        with self._read_ctx() as conn:
+            lineage, error = self._resolve_compression_lineage_snapshot(
+                conn, session_id
+            )
+        return [] if error else lineage
 
     def clear_messages(self, session_id: str) -> None:
         """Delete all messages for a session and reset its counters."""

@@ -11,6 +11,7 @@ module-level constants live in hermes_state_common.
 import datetime
 import logging
 import json
+import math
 import sqlite3
 import time
 import uuid
@@ -32,6 +33,7 @@ from hermes_state_common import (
     LEGACY_FTS_TRIGRAM_SQL,
     SCHEMA_SQL,
     SCHEMA_VERSION,
+    SESSION_USAGE_DETAIL_BASELINE_KEY,
     SESSION_USAGE_DETAIL_COVERAGE_KEY,
     _FTS_CJK_TRIGGERS,
     _FTS_TRIGGERS,
@@ -1191,6 +1193,134 @@ class SessionSchemaMixin:
         finally:
             cursor.execute("PRAGMA foreign_keys=ON")
 
+    def _ensure_usage_detail_activation(self, cursor) -> None:
+        """Atomically establish the forward-only aggregate baseline."""
+        coverage_row = cursor.execute(
+            "SELECT value FROM state_meta WHERE key = ?",
+            (SESSION_USAGE_DETAIL_COVERAGE_KEY,),
+        ).fetchone()
+        baseline_row = cursor.execute(
+            "SELECT value FROM state_meta WHERE key = ?",
+            (SESSION_USAGE_DETAIL_BASELINE_KEY,),
+        ).fetchone()
+        if coverage_row is not None and baseline_row is not None:
+            try:
+                coverage_value = float(coverage_row[0])
+                baseline_value = float(baseline_row[0])
+            except (TypeError, ValueError) as exc:
+                raise RuntimeError(
+                    "invalid session usage activation metadata"
+                ) from exc
+            if (
+                not math.isfinite(coverage_value)
+                or coverage_value < 0
+                or baseline_value != coverage_value
+            ):
+                raise RuntimeError("invalid session usage activation metadata")
+            return
+
+        metric_fields = (
+            "api_call_count",
+            "input_tokens",
+            "output_tokens",
+            "cache_read_tokens",
+            "cache_write_tokens",
+            "reasoning_tokens",
+            "estimated_cost_usd",
+            "actual_cost_usd",
+        )
+        cursor.execute("SAVEPOINT usage_detail_activation")
+        try:
+            cursor.execute("DELETE FROM session_usage_activation_baseline")
+            if coverage_row is None:
+                activation = time.time()
+                detail_by_session = {}
+            else:
+                try:
+                    activation = float(coverage_row[0])
+                except (TypeError, ValueError) as exc:
+                    raise RuntimeError(
+                        "invalid session usage activation marker"
+                    ) from exc
+                if not math.isfinite(activation) or activation < 0:
+                    raise RuntimeError("invalid session usage activation marker")
+                sums = ", ".join(
+                    f"COALESCE(SUM({field}), 0) AS {field}"
+                    for field in metric_fields
+                )
+                detail_by_session = {
+                    row["session_id"]: row
+                    for row in cursor.execute(
+                        f"SELECT session_id, {sums} "
+                        "FROM session_usage_events WHERE recorded_at >= ? "
+                        "GROUP BY session_id",
+                        (activation,),
+                    ).fetchall()
+                }
+
+            sums = ", ".join(
+                f"COALESCE(SUM({field}), 0) AS {field}"
+                for field in metric_fields
+            )
+            aggregate_by_session = {
+                row["session_id"]: row
+                for row in cursor.execute(
+                    f"SELECT session_id, {sums} FROM session_model_usage "
+                    "GROUP BY session_id"
+                ).fetchall()
+            }
+            session_ids = set(aggregate_by_session) | set(detail_by_session)
+            insert_sql = (
+                "INSERT INTO session_usage_activation_baseline "
+                f"(session_id, {', '.join(metric_fields)}) VALUES "
+                f"({', '.join('?' for _ in range(len(metric_fields) + 1))})"
+            )
+            for session_id in session_ids:
+                aggregate = aggregate_by_session.get(session_id)
+                detail = detail_by_session.get(session_id)
+                baseline = []
+                for field in metric_fields:
+                    if not field.endswith("_usd"):
+                        value = (aggregate[field] if aggregate else 0) or 0
+                        if coverage_row is not None:
+                            value -= (detail[field] if detail else 0) or 0
+                        if isinstance(value, float) and not value.is_integer():
+                            raise RuntimeError(
+                                "inconsistent session usage activation baseline"
+                            )
+                        value = int(value)
+                        if value < 0:
+                            raise RuntimeError(
+                                "inconsistent session usage activation baseline"
+                            )
+                    else:
+                        value = float(
+                            (aggregate[field] if aggregate else 0) or 0
+                        )
+                        if coverage_row is not None:
+                            value -= float((detail[field] if detail else 0) or 0)
+                        if not math.isfinite(value):
+                            raise RuntimeError(
+                                "non-finite session usage activation baseline"
+                            )
+                    baseline.append(value)
+                cursor.execute(insert_sql, (session_id, *baseline))
+
+            marker_value = repr(activation)
+            cursor.execute(
+                "INSERT OR REPLACE INTO state_meta (key, value) VALUES (?, ?)",
+                (SESSION_USAGE_DETAIL_COVERAGE_KEY, marker_value),
+            )
+            cursor.execute(
+                "INSERT OR REPLACE INTO state_meta (key, value) VALUES (?, ?)",
+                (SESSION_USAGE_DETAIL_BASELINE_KEY, marker_value),
+            )
+            cursor.execute("RELEASE SAVEPOINT usage_detail_activation")
+        except BaseException:
+            cursor.execute("ROLLBACK TO SAVEPOINT usage_detail_activation")
+            cursor.execute("RELEASE SAVEPOINT usage_detail_activation")
+            raise
+
     def _init_schema(self):
         """Create tables and FTS if they don't exist, reconcile columns.
 
@@ -1220,15 +1350,6 @@ class SessionSchemaMixin:
         cursor = self._conn.cursor()
 
         cursor.executescript(SCHEMA_SQL)
-
-        # The detailed usage ledger is forward-only. Persist the exact
-        # profile-local activation boundary once, after the table exists, so
-        # readers can distinguish complete windows from historical aggregate
-        # data that cannot be partitioned exactly.
-        cursor.execute(
-            "INSERT OR IGNORE INTO state_meta (key, value) VALUES (?, ?)",
-            (SESSION_USAGE_DETAIL_COVERAGE_KEY, repr(time.time())),
-        )
 
         # ── Declarative column reconciliation ──────────────────────────
         # Diff live tables against SCHEMA_SQL and ADD any missing columns.
@@ -1264,6 +1385,13 @@ class SessionSchemaMixin:
         # Deferred indexes that reference the reconciler-added ``active``
         # column (idx_messages_session_active) — same ordering constraint.
         cursor.executescript(DEFERRED_INDEX_SQL)
+
+        # Capture the aggregate watermark only after the detail and baseline
+        # tables have been reconciled and their dependent index is valid.
+        # Missing-marker repair resets activation at the current aggregate;
+        # upgrading the reviewed Stage 4A schema derives the historical
+        # baseline as aggregate minus already-recorded post-marker detail.
+        self._ensure_usage_detail_activation(cursor)
 
         # Heal NULL ``active`` rows unconditionally on every startup.
         # On real-world DBs the reconciler-added ``active`` column can lack

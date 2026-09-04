@@ -360,6 +360,7 @@ SCHEMA_VERSION = 30
 # usage ledger first becomes available for a profile. Public usage reads use
 # this boundary to avoid presenting pre-ledger aggregate history as exact.
 SESSION_USAGE_DETAIL_COVERAGE_KEY = "session.usage.detail.v1.coverage_started_at"
+SESSION_USAGE_DETAIL_BASELINE_KEY = "session.usage.detail.v1.aggregate_baseline"
 
 
 # FTS storage-layout version, tracked INDEPENDENTLY of SCHEMA_VERSION in the
@@ -545,13 +546,36 @@ CREATE TABLE IF NOT EXISTS session_model_usage (
 CREATE TABLE IF NOT EXISTS session_usage_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    recorded_at REAL NOT NULL,
+    recorded_at REAL NOT NULL CHECK (
+        recorded_at >= 0 AND recorded_at <= 1.7976931348623157e308
+    ),
     model TEXT NOT NULL DEFAULT '',
     billing_provider TEXT NOT NULL DEFAULT '',
     billing_base_url TEXT NOT NULL DEFAULT '',
     billing_mode TEXT NOT NULL DEFAULT '',
     task TEXT NOT NULL DEFAULT '',
-    api_call_count INTEGER NOT NULL DEFAULT 1,
+    api_call_count INTEGER NOT NULL DEFAULT 1 CHECK (api_call_count >= 0),
+    input_tokens INTEGER NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
+    output_tokens INTEGER NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
+    cache_read_tokens INTEGER NOT NULL DEFAULT 0 CHECK (cache_read_tokens >= 0),
+    cache_write_tokens INTEGER NOT NULL DEFAULT 0 CHECK (cache_write_tokens >= 0),
+    reasoning_tokens INTEGER NOT NULL DEFAULT 0 CHECK (reasoning_tokens >= 0),
+    estimated_cost_usd REAL NOT NULL DEFAULT 0 CHECK (
+        estimated_cost_usd BETWEEN -1.7976931348623157e308
+            AND 1.7976931348623157e308
+    ),
+    actual_cost_usd REAL NOT NULL DEFAULT 0 CHECK (
+        actual_cost_usd BETWEEN -1.7976931348623157e308
+            AND 1.7976931348623157e308
+    )
+);
+
+-- Aggregate values already present when the forward-only ledger activates.
+-- Reconciliation subtracts this historical baseline before comparing exact
+-- post-activation detail with session_model_usage.
+CREATE TABLE IF NOT EXISTS session_usage_activation_baseline (
+    session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+    api_call_count INTEGER NOT NULL DEFAULT 0,
     input_tokens INTEGER NOT NULL DEFAULT 0,
     output_tokens INTEGER NOT NULL DEFAULT 0,
     cache_read_tokens INTEGER NOT NULL DEFAULT 0,
@@ -560,8 +584,6 @@ CREATE TABLE IF NOT EXISTS session_usage_events (
     estimated_cost_usd REAL NOT NULL DEFAULT 0,
     actual_cost_usd REAL NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_session_usage_events_session_time
-    ON session_usage_events(session_id, recorded_at, id);
 
 CREATE TABLE IF NOT EXISTS state_meta (
     key TEXT PRIMARY KEY,
@@ -690,6 +712,8 @@ CREATE INDEX IF NOT EXISTS idx_async_delegations_delivery
 # existing databases. SCHEMA_SQL above is run by sqlite executescript
 # which would otherwise fail on legacy DBs ("no such column: active").
 DEFERRED_INDEX_SQL = """
+CREATE INDEX IF NOT EXISTS idx_session_usage_events_session_time
+    ON session_usage_events(session_id, recorded_at, id);
 CREATE INDEX IF NOT EXISTS idx_messages_session_active
     ON messages(session_id, active, timestamp);
 CREATE INDEX IF NOT EXISTS idx_messages_active_null
