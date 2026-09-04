@@ -36,16 +36,21 @@ from hermes_state_common import (
     SESSION_USAGE_DETAIL_BASELINE_KEY,
     SESSION_USAGE_DETAIL_COVERAGE_KEY,
     SESSION_USAGE_RECONCILIATION_EPOCH_KEY,
+    SESSION_USAGE_RECONCILIATION_IDENTITY_VERSION,
     SESSION_USAGE_RECONCILIATION_KEY,
     SESSION_USAGE_RECONCILIATION_LEGACY_VERSION,
     SESSION_USAGE_RECONCILIATION_METRIC_FIELDS,
     SESSION_USAGE_RECONCILIATION_ROUTE_FIELDS,
     SESSION_USAGE_RECONCILIATION_VERSION,
+    SESSION_USAGE_TRUSTED_EPOCH_GENERATION,
+    SESSION_USAGE_TRUSTED_EPOCH_SCHEMA_COLUMN,
+    SESSION_USAGE_TRUSTED_EPOCH_TABLE,
     _FTS_CJK_TRIGGERS,
     _FTS_TRIGGERS,
     _ephemeral_child_sql,
     fts_rebuild_admission,
     parse_session_usage_reconciliation_marker,
+    parse_session_usage_trusted_epoch,
     session_usage_reconciliation_baseline_digest,
 )
 
@@ -1201,8 +1206,106 @@ class SessionSchemaMixin:
         finally:
             cursor.execute("PRAGMA foreign_keys=ON")
 
+    def _usage_epoch_init_checkpoint(self, point: str) -> None:
+        """No-op seam for deterministic trusted-epoch crash testing."""
+        del point
+
+    @staticmethod
+    def _trusted_baseline_shell_is_canonical_empty(
+        cursor: sqlite3.Cursor,
+    ) -> bool:
+        """Return whether a pre-existing baseline is a retryable DDL shell."""
+        rows = cursor.execute(
+            'PRAGMA table_info("session_usage_reconciliation_baseline")'
+        ).fetchall()
+        fields = (
+            *SESSION_USAGE_RECONCILIATION_ROUTE_FIELDS,
+            *SESSION_USAGE_RECONCILIATION_METRIC_FIELDS,
+        )
+
+        def _column(row, index, name):
+            return row[index] if isinstance(row, (tuple, list)) else row[name]
+
+        names = tuple(_column(row, 1, "name") for row in rows)
+        primary_key = tuple(
+            _column(row, 1, "name")
+            for row in sorted(
+                (row for row in rows if _column(row, 5, "pk")),
+                key=lambda row: _column(row, 5, "pk"),
+            )
+        )
+        return (
+            names == fields
+            and primary_key == SESSION_USAGE_RECONCILIATION_ROUTE_FIELDS
+            and cursor.execute(
+                "SELECT 1 FROM session_usage_reconciliation_baseline LIMIT 1"
+            ).fetchone()
+            is None
+        )
+
+    @staticmethod
+    def _create_trusted_usage_epoch_table(cursor: sqlite3.Cursor) -> None:
+        cursor.execute(
+            f"""CREATE TABLE {SESSION_USAGE_TRUSTED_EPOCH_TABLE} (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    generation INTEGER NOT NULL CHECK (generation >= 1),
+    epoch_id TEXT NOT NULL CHECK (
+        length(epoch_id) = 32 AND epoch_id NOT GLOB '*[^0-9a-f]*'
+    ),
+    activated_at REAL NOT NULL CHECK (
+        activated_at >= 0 AND activated_at <= 1.7976931348623157e308
+    )
+)"""
+        )
+
+    @staticmethod
+    def _schema_trusted_epoch_generation(cursor: sqlite3.Cursor) -> Optional[int]:
+        rows = cursor.execute(
+            f"SELECT {SESSION_USAGE_TRUSTED_EPOCH_SCHEMA_COLUMN} "
+            "FROM schema_version"
+        ).fetchall()
+        if len(rows) > 1:
+            raise RuntimeError("invalid trusted usage schema generation state")
+        if not rows:
+            return None
+        value = rows[0][0]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise RuntimeError("invalid trusted usage schema generation")
+        return value
+
+    @staticmethod
+    def _set_schema_trusted_epoch_generation(
+        cursor: sqlite3.Cursor, generation: int
+    ) -> None:
+        row = cursor.execute("SELECT rowid FROM schema_version").fetchone()
+        if row is None:
+            cursor.execute(
+                "INSERT INTO schema_version "
+                f"(version, {SESSION_USAGE_TRUSTED_EPOCH_SCHEMA_COLUMN}) "
+                "VALUES (?, ?)",
+                (SCHEMA_VERSION, generation),
+            )
+            now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            cursor.executemany(
+                "INSERT OR IGNORE INTO state_meta (key, value) VALUES (?, ?)",
+                [
+                    ("store_instance_id", str(uuid.uuid4())),
+                    ("store_created_at_utc", now_iso),
+                ],
+            )
+        else:
+            cursor.execute(
+                "UPDATE schema_version SET "
+                f"{SESSION_USAGE_TRUSTED_EPOCH_SCHEMA_COLUMN} = ?",
+                (generation,),
+            )
+
     def _ensure_usage_detail_activation(
-        self, cursor, *, baseline_table_preexisting: bool
+        self,
+        cursor,
+        *,
+        baseline_table_preexisting: bool,
+        baseline_shell_is_canonical_empty: bool,
     ) -> None:
         """Atomically establish or validate the trusted accounting cutover.
 
@@ -1217,6 +1320,7 @@ class SessionSchemaMixin:
         baseline_projection = ", ".join(baseline_fields)
         conn = cursor.connection
         cursor.execute("BEGIN IMMEDIATE")
+        activated = False
         try:
             trusted_row = cursor.execute(
                 "SELECT value FROM state_meta WHERE key = ?",
@@ -1226,6 +1330,35 @@ class SessionSchemaMixin:
                 "SELECT value FROM state_meta WHERE key = ?",
                 (SESSION_USAGE_RECONCILIATION_EPOCH_KEY,),
             ).fetchone()
+            schema_epoch_generation = self._schema_trusted_epoch_generation(
+                cursor
+            )
+
+            epoch_table_preexisting = cursor.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                (SESSION_USAGE_TRUSTED_EPOCH_TABLE,),
+            ).fetchone() is not None
+            epoch_identity = None
+            if epoch_table_preexisting:
+                epoch_rows = cursor.execute(
+                    f"SELECT singleton, generation, epoch_id, activated_at "
+                    f"FROM {SESSION_USAGE_TRUSTED_EPOCH_TABLE}"
+                ).fetchall()
+                if len(epoch_rows) != 1:
+                    raise RuntimeError(
+                        "damaged trusted session usage cutover epoch identity"
+                    )
+                try:
+                    epoch_identity = parse_session_usage_trusted_epoch(
+                        epoch_rows[0]
+                    )
+                except ValueError as exc:
+                    raise RuntimeError(
+                        "invalid trusted session usage cutover epoch identity"
+                    ) from exc
+
+            marker = None
+            baseline_rows = None
             if trusted_row is not None:
                 try:
                     marker = parse_session_usage_reconciliation_marker(
@@ -1252,33 +1385,11 @@ class SessionSchemaMixin:
                     raise RuntimeError(
                         "incomplete trusted session usage cutover baseline"
                     )
-                if (
-                    marker["version"]
-                    == SESSION_USAGE_RECONCILIATION_LEGACY_VERSION
-                ):
+                if marker["version"] == SESSION_USAGE_RECONCILIATION_LEGACY_VERSION:
                     if epoch_row is not None:
                         raise RuntimeError(
                             "inconsistent trusted session usage cutover epoch"
                         )
-                    marker = {
-                        **marker,
-                        "version": SESSION_USAGE_RECONCILIATION_VERSION,
-                        "generation": uuid.uuid4().hex,
-                    }
-                    trusted_value = json.dumps(
-                        marker,
-                        allow_nan=False,
-                        separators=(",", ":"),
-                        sort_keys=True,
-                    )
-                    cursor.execute(
-                        "UPDATE state_meta SET value = ? WHERE key = ?",
-                        (trusted_value, SESSION_USAGE_RECONCILIATION_KEY),
-                    )
-                    cursor.execute(
-                        "INSERT INTO state_meta (key, value) VALUES (?, ?)",
-                        (SESSION_USAGE_RECONCILIATION_EPOCH_KEY, trusted_value),
-                    )
                 else:
                     try:
                         epoch = parse_session_usage_reconciliation_marker(
@@ -1292,6 +1403,24 @@ class SessionSchemaMixin:
                         raise RuntimeError(
                             "inconsistent trusted session usage cutover epoch"
                         )
+
+            if epoch_table_preexisting:
+                if (
+                    marker is None
+                    or marker["version"] != SESSION_USAGE_RECONCILIATION_VERSION
+                    or schema_epoch_generation != epoch_identity["generation"]
+                ):
+                    raise RuntimeError(
+                        "damaged trusted session usage cutover state"
+                    )
+                if (
+                    epoch_identity["generation"] != marker["epoch_generation"]
+                    or epoch_identity["epoch_id"] != marker["generation"]
+                    or epoch_identity["activated_at"] != marker["cutover_at"]
+                ):
+                    raise RuntimeError(
+                        "inconsistent trusted session usage cutover epoch identity"
+                    )
                 legacy_marker = repr(marker["cutover_at"])
                 cursor.execute(
                     "INSERT OR REPLACE INTO state_meta (key, value) "
@@ -1306,21 +1435,102 @@ class SessionSchemaMixin:
                 conn.commit()
                 return
 
-            if epoch_row is not None or baseline_table_preexisting:
+            if marker is not None:
+                if schema_epoch_generation not in (None, 0):
+                    raise RuntimeError(
+                        "damaged trusted session usage cutover state"
+                    )
+                if marker["version"] not in (
+                    SESSION_USAGE_RECONCILIATION_LEGACY_VERSION,
+                    SESSION_USAGE_RECONCILIATION_IDENTITY_VERSION,
+                ):
+                    raise RuntimeError(
+                        "damaged trusted session usage cutover state"
+                    )
+                epoch_id = marker["generation"] or uuid.uuid4().hex
+                upgraded_marker = {
+                    **marker,
+                    "version": SESSION_USAGE_RECONCILIATION_VERSION,
+                    "generation": epoch_id,
+                    "epoch_generation": SESSION_USAGE_TRUSTED_EPOCH_GENERATION,
+                }
+                trusted_value = json.dumps(
+                    upgraded_marker,
+                    allow_nan=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+                self._create_trusted_usage_epoch_table(cursor)
+                cursor.execute(
+                    f"INSERT INTO {SESSION_USAGE_TRUSTED_EPOCH_TABLE} "
+                    "(singleton, generation, epoch_id, activated_at) "
+                    "VALUES (1, ?, ?, ?)",
+                    (
+                        SESSION_USAGE_TRUSTED_EPOCH_GENERATION,
+                        epoch_id,
+                        marker["cutover_at"],
+                    ),
+                )
+                self._set_schema_trusted_epoch_generation(
+                    cursor, SESSION_USAGE_TRUSTED_EPOCH_GENERATION
+                )
+                cursor.execute(
+                    "UPDATE state_meta SET value = ? WHERE key = ?",
+                    (trusted_value, SESSION_USAGE_RECONCILIATION_KEY),
+                )
+                cursor.execute(
+                    "INSERT INTO state_meta (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    (SESSION_USAGE_RECONCILIATION_EPOCH_KEY, trusted_value),
+                )
+                legacy_marker = repr(marker["cutover_at"])
+                cursor.execute(
+                    "INSERT OR REPLACE INTO state_meta (key, value) VALUES (?, ?)",
+                    (SESSION_USAGE_DETAIL_COVERAGE_KEY, legacy_marker),
+                )
+                cursor.execute(
+                    "INSERT OR REPLACE INTO state_meta (key, value) VALUES (?, ?)",
+                    (SESSION_USAGE_DETAIL_BASELINE_KEY, legacy_marker),
+                )
+                self._usage_epoch_init_checkpoint("before_commit")
+                conn.commit()
+                activated = True
+                return
+
+            if (
+                schema_epoch_generation not in (None, 0)
+                or epoch_row is not None
+                or (
+                    baseline_table_preexisting
+                    and not baseline_shell_is_canonical_empty
+                )
+            ):
                 raise RuntimeError(
                     "damaged trusted session usage cutover state"
                 )
 
             cutover_at = time.time()
-            event_id_high_water = int(
-                cursor.execute(
-                    "SELECT COALESCE(MAX(id), 0) FROM session_usage_events"
-                ).fetchone()[0]
-                or 0
+            epoch_id = uuid.uuid4().hex
+            self._create_trusted_usage_epoch_table(cursor)
+            self._usage_epoch_init_checkpoint("before_epoch_identity")
+            cursor.execute(
+                f"INSERT INTO {SESSION_USAGE_TRUSTED_EPOCH_TABLE} "
+                "(singleton, generation, epoch_id, activated_at) "
+                "VALUES (1, ?, ?, ?)",
+                (
+                    SESSION_USAGE_TRUSTED_EPOCH_GENERATION,
+                    epoch_id,
+                    cutover_at,
+                ),
             )
+            self._set_schema_trusted_epoch_generation(
+                cursor, SESSION_USAGE_TRUSTED_EPOCH_GENERATION
+            )
+            self._usage_epoch_init_checkpoint("after_epoch_identity")
             cursor.execute(
                 "DELETE FROM session_usage_reconciliation_baseline"
             )
+            self._usage_epoch_init_checkpoint("during_baseline_capture")
             cursor.execute(
                 "INSERT INTO session_usage_reconciliation_baseline "
                 f"({baseline_projection}) SELECT {baseline_projection} "
@@ -1340,6 +1550,15 @@ class SessionSchemaMixin:
                 raise RuntimeError(
                     "invalid aggregate state at trusted usage cutover"
                 ) from exc
+            self._usage_epoch_init_checkpoint("after_baseline")
+
+            event_id_high_water = int(
+                cursor.execute(
+                    "SELECT COALESCE(MAX(id), 0) FROM session_usage_events"
+                ).fetchone()[0]
+                or 0
+            )
+            self._usage_epoch_init_checkpoint("after_high_water")
 
             # Preserve the v1 metadata/table for compatibility, but reset it
             # to the same full aggregate snapshot.  It is no longer a source
@@ -1359,7 +1578,8 @@ class SessionSchemaMixin:
             trusted_marker = json.dumps(
                 {
                     "version": SESSION_USAGE_RECONCILIATION_VERSION,
-                    "generation": uuid.uuid4().hex,
+                    "generation": epoch_id,
+                    "epoch_generation": SESSION_USAGE_TRUSTED_EPOCH_GENERATION,
                     "cutover_at": cutover_at,
                     "event_id_high_water": event_id_high_water,
                     "baseline_row_count": len(baseline_rows),
@@ -1380,27 +1600,23 @@ class SessionSchemaMixin:
             )
             cursor.execute(
                 "INSERT INTO state_meta (key, value) VALUES (?, ?)",
-                (SESSION_USAGE_RECONCILIATION_KEY, trusted_marker),
-            )
-            cursor.execute(
-                "INSERT INTO state_meta (key, value) VALUES (?, ?)",
                 (SESSION_USAGE_RECONCILIATION_EPOCH_KEY, trusted_marker),
             )
+            self._usage_epoch_init_checkpoint("after_integrity_binding")
+            cursor.execute(
+                "INSERT INTO state_meta (key, value) VALUES (?, ?)",
+                (SESSION_USAGE_RECONCILIATION_KEY, trusted_marker),
+            )
+            self._usage_epoch_init_checkpoint("before_commit")
             conn.commit()
+            activated = True
         except BaseException:
             if conn.in_transaction:
                 conn.rollback()
-            if not baseline_table_preexisting:
-                try:
-                    conn.execute(
-                        "DROP TABLE IF EXISTS "
-                        "session_usage_reconciliation_baseline"
-                    )
-                    conn.commit()
-                except sqlite3.Error:
-                    if conn.in_transaction:
-                        conn.rollback()
             raise
+        finally:
+            if activated:
+                self._usage_epoch_init_checkpoint("after_commit")
 
     def _init_schema(self):
         """Create tables and FTS if they don't exist, reconcile columns.
@@ -1430,12 +1646,18 @@ class SessionSchemaMixin:
 
         cursor = self._conn.cursor()
 
+        self._usage_epoch_init_checkpoint("before_schema_ddl")
         baseline_table_preexisting = cursor.execute(
             "SELECT 1 FROM sqlite_master WHERE type = 'table' "
             "AND name = 'session_usage_reconciliation_baseline'"
         ).fetchone() is not None
+        baseline_shell_is_canonical_empty = (
+            baseline_table_preexisting
+            and self._trusted_baseline_shell_is_canonical_empty(cursor)
+        )
 
         cursor.executescript(SCHEMA_SQL)
+        self._usage_epoch_init_checkpoint("after_schema_tables")
 
         # ── Declarative column reconciliation ──────────────────────────
         # Diff live tables against SCHEMA_SQL and ADD any missing columns.
@@ -1471,6 +1693,11 @@ class SessionSchemaMixin:
         # Deferred indexes that reference the reconciler-added ``active``
         # column (idx_messages_session_active) — same ordering constraint.
         cursor.executescript(DEFERRED_INDEX_SQL)
+        self._usage_epoch_init_checkpoint("after_schema_indexes")
+
+        schema_version_row_preexisting = cursor.execute(
+            "SELECT 1 FROM schema_version LIMIT 1"
+        ).fetchone() is not None
 
         # Establish the trusted v2 cutover only after both detail and baseline
         # schemas are valid. BEGIN IMMEDIATE serializes the complete aggregate
@@ -1478,6 +1705,7 @@ class SessionSchemaMixin:
         self._ensure_usage_detail_activation(
             cursor,
             baseline_table_preexisting=baseline_table_preexisting,
+            baseline_shell_is_canonical_empty=baseline_shell_is_canonical_empty,
         )
 
         # Heal NULL ``active`` rows unconditionally on every startup.
@@ -1520,11 +1748,12 @@ class SessionSchemaMixin:
         # version.  No version-gated column additions remain.
         cursor.execute("SELECT version FROM schema_version LIMIT 1")
         row = cursor.fetchone()
-        if row is None:
-            cursor.execute(
-                "INSERT INTO schema_version (version) VALUES (?)",
-                (SCHEMA_VERSION,),
-            )
+        if not schema_version_row_preexisting:
+            if row is None:
+                cursor.execute(
+                    "INSERT INTO schema_version (version) VALUES (?)",
+                    (SCHEMA_VERSION,),
+                )
             # Record store provenance on creation so fresh vs wiped stores are distinguishable (#97568)
             now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
             instance_id = str(uuid.uuid4())

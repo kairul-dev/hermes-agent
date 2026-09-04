@@ -13,9 +13,12 @@ from hermes_state_common import (
     SESSION_USAGE_DETAIL_BASELINE_KEY,
     SESSION_USAGE_DETAIL_COVERAGE_KEY,
     SESSION_USAGE_RECONCILIATION_EPOCH_KEY,
+    SESSION_USAGE_RECONCILIATION_IDENTITY_VERSION,
     SESSION_USAGE_RECONCILIATION_KEY,
     SESSION_USAGE_RECONCILIATION_LEGACY_VERSION,
     SESSION_USAGE_RECONCILIATION_VERSION,
+    SESSION_USAGE_TRUSTED_EPOCH_SCHEMA_COLUMN,
+    SESSION_USAGE_TRUSTED_EPOCH_TABLE,
     parse_session_usage_reconciliation_marker,
 )
 
@@ -39,6 +42,41 @@ def _force_new_cutover(db):
         ),
     )
     db._conn.execute("DROP TABLE session_usage_reconciliation_baseline")
+    db._conn.execute(f"DROP TABLE IF EXISTS {SESSION_USAGE_TRUSTED_EPOCH_TABLE}")
+    db._conn.execute(
+        "UPDATE schema_version SET "
+        f"{SESSION_USAGE_TRUSTED_EPOCH_SCHEMA_COLUMN} = 0"
+    )
+
+
+def _epoch_identity(conn):
+    row = conn.execute(
+        f"SELECT generation, epoch_id, activated_at "
+        f"FROM {SESSION_USAGE_TRUSTED_EPOCH_TABLE} WHERE singleton = 1"
+    ).fetchone()
+    return tuple(row) if row is not None else None
+
+
+def _table_exists(conn, name):
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (name,),
+    ).fetchone() is not None
+
+
+def _schema_epoch_generation(conn):
+    if not _table_exists(conn, "schema_version"):
+        return None
+    columns = {
+        row[1] for row in conn.execute('PRAGMA table_info("schema_version")')
+    }
+    if SESSION_USAGE_TRUSTED_EPOCH_SCHEMA_COLUMN not in columns:
+        return None
+    row = conn.execute(
+        f"SELECT {SESSION_USAGE_TRUSTED_EPOCH_SCHEMA_COLUMN} "
+        "FROM schema_version"
+    ).fetchone()
+    return row[0] if row is not None else None
 
 
 def _record(db, session_id, tokens, *, model="m", provider="p", timestamp=None):
@@ -80,6 +118,11 @@ def test_upgrade_does_not_absorb_existing_aggregate_detail_gap(tmp_path):
     )
     db._conn.execute("DROP TABLE session_usage_activation_baseline")
     db._conn.execute("DROP TABLE session_usage_reconciliation_baseline")
+    db._conn.execute(f"DROP TABLE {SESSION_USAGE_TRUSTED_EPOCH_TABLE}")
+    db._conn.execute(
+        "UPDATE schema_version SET "
+        f"{SESSION_USAGE_TRUSTED_EPOCH_SCHEMA_COLUMN} = 0"
+    )
     db._conn.execute(
         "DELETE FROM state_meta WHERE key IN (?, ?, ?)",
         (
@@ -257,6 +300,7 @@ def test_complete_cutover_artifact_erasure_never_rebaselines_active_epoch(
     assert before_erasure["coverage"]["status"] == "PARTIAL"
     assert before_erasure["totals"]["api_call_count"] == 1
     assert before_erasure["totals"]["input_tokens"] == 5
+    epoch_before = _epoch_identity(db._conn)
 
     db._conn.execute(
         "DELETE FROM state_meta WHERE key IN (?, ?)",
@@ -268,8 +312,38 @@ def test_complete_cutover_artifact_erasure_never_rebaselines_active_epoch(
     db._conn.execute("DROP TABLE session_usage_reconciliation_baseline")
     db.close()
 
+    readonly = SessionDB(db_path=path, read_only=True)
+    unavailable = readonly.get_session_usage_detail(
+        "s", start=marker["cutover_at"]
+    )
+    assert unavailable["coverage"]["status"] == "UNAVAILABLE"
+    assert unavailable["totals"] is None
+    readonly.close()
+
     with pytest.raises(RuntimeError, match="trusted session usage cutover"):
         SessionDB(db_path=path)
+
+    raw = sqlite3.connect(path)
+    assert _epoch_identity(raw) == epoch_before
+    assert raw.execute(
+        "SELECT 1 FROM state_meta WHERE key IN (?, ?)",
+        (
+            SESSION_USAGE_RECONCILIATION_KEY,
+            SESSION_USAGE_RECONCILIATION_EPOCH_KEY,
+        ),
+    ).fetchone() is None
+    assert raw.execute(
+        "SELECT COUNT(*) FROM session_usage_reconciliation_baseline"
+    ).fetchone()[0] == 0
+    assert raw.execute(
+        "SELECT SUM(api_call_count), SUM(input_tokens) "
+        "FROM session_model_usage WHERE session_id = 's'"
+    ).fetchone() == (5, 115)
+    assert raw.execute(
+        "SELECT COUNT(*), COALESCE(SUM(input_tokens), 0) "
+        "FROM session_usage_events WHERE session_id = 's'"
+    ).fetchone() == (1, 5)
+    raw.close()
 
 
 @pytest.mark.parametrize("old_calls,old_tokens", [(0, 0), (1, 1), (3, 105)])
@@ -464,9 +538,9 @@ def test_cutover_transaction_rolls_back_baseline_and_marker(tmp_path):
         (SESSION_USAGE_RECONCILIATION_KEY,),
     ).fetchone() is None
     assert raw.execute(
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' "
-        "AND name = 'session_usage_reconciliation_baseline'"
-    ).fetchone() is None
+        "SELECT COUNT(*) FROM session_usage_reconciliation_baseline"
+    ).fetchone()[0] == 0
+    assert not _table_exists(raw, SESSION_USAGE_TRUSTED_EPOCH_TABLE)
     raw.execute("DROP TRIGGER fail_trusted_cutover")
     raw.commit()
     raw.close()
@@ -839,6 +913,12 @@ def test_true_first_cutover_atomically_captures_all_initial_state(tmp_path):
     assert tuple(baseline) == (3, 105)
     assert marker == epoch
     assert marker["version"] == SESSION_USAGE_RECONCILIATION_VERSION
+    assert marker["epoch_generation"] == 1
+    assert _epoch_identity(initialized._conn) == (
+        marker["epoch_generation"],
+        marker["generation"],
+        marker["cutover_at"],
+    )
     assert marker["event_id_high_water"] == 1
     initialized.close()
 
@@ -873,6 +953,7 @@ def test_intact_legacy_v2_cutover_upgrades_without_rebaselining(tmp_path):
     )
     legacy_marker["version"] = SESSION_USAGE_RECONCILIATION_LEGACY_VERSION
     legacy_marker.pop("generation")
+    legacy_marker.pop("epoch_generation")
     raw.execute(
         "UPDATE state_meta SET value = ? WHERE key = ?",
         (
@@ -883,6 +964,11 @@ def test_intact_legacy_v2_cutover_upgrades_without_rebaselining(tmp_path):
     raw.execute(
         "DELETE FROM state_meta WHERE key = ?",
         (SESSION_USAGE_RECONCILIATION_EPOCH_KEY,),
+    )
+    raw.execute(f"DROP TABLE {SESSION_USAGE_TRUSTED_EPOCH_TABLE}")
+    raw.execute(
+        "UPDATE schema_version SET "
+        f"{SESSION_USAGE_TRUSTED_EPOCH_SCHEMA_COLUMN} = 0"
     )
     baseline_before = _cutover_state_snapshot(raw)[1]
     raw.commit()
@@ -911,3 +997,289 @@ def test_intact_legacy_v2_cutover_upgrades_without_rebaselining(tmp_path):
     assert result["coverage"]["status"] == "PARTIAL"
     assert result["totals"]["input_tokens"] == 5
     upgraded.close()
+
+
+def test_intact_legacy_v3_cutover_gains_epoch_without_rebaselining(tmp_path):
+    path = tmp_path / "state.db"
+    marker = _create_cutover_with_live_gap(path)
+    raw = sqlite3.connect(path)
+    legacy_marker = json.loads(
+        raw.execute(
+            "SELECT value FROM state_meta WHERE key = ?",
+            (SESSION_USAGE_RECONCILIATION_KEY,),
+        ).fetchone()[0]
+    )
+    legacy_marker["version"] = SESSION_USAGE_RECONCILIATION_IDENTITY_VERSION
+    legacy_marker.pop("epoch_generation")
+    legacy_value = json.dumps(
+        legacy_marker, separators=(",", ":"), sort_keys=True
+    )
+    raw.executemany(
+        "UPDATE state_meta SET value = ? WHERE key = ?",
+        (
+            (legacy_value, SESSION_USAGE_RECONCILIATION_KEY),
+            (legacy_value, SESSION_USAGE_RECONCILIATION_EPOCH_KEY),
+        ),
+    )
+    raw.execute(f"DROP TABLE {SESSION_USAGE_TRUSTED_EPOCH_TABLE}")
+    raw.execute(
+        "UPDATE schema_version SET "
+        f"{SESSION_USAGE_TRUSTED_EPOCH_SCHEMA_COLUMN} = 0"
+    )
+    baseline_before = _cutover_state_snapshot(raw)[1]
+    raw.commit()
+    raw.close()
+
+    upgraded = SessionDB(db_path=path)
+    upgraded_marker = _marker(upgraded)
+    assert upgraded_marker["version"] == SESSION_USAGE_RECONCILIATION_VERSION
+    assert upgraded_marker["generation"] == legacy_marker["generation"]
+    assert upgraded_marker["cutover_at"] == marker["cutover_at"]
+    assert upgraded_marker["event_id_high_water"] == 0
+    assert _epoch_identity(upgraded._conn) == (
+        1,
+        upgraded_marker["generation"],
+        upgraded_marker["cutover_at"],
+    )
+    assert [tuple(row) for row in upgraded._conn.execute(
+        "SELECT * FROM session_usage_reconciliation_baseline "
+        "ORDER BY session_id, model, billing_provider, billing_base_url, "
+        "billing_mode, task"
+    ).fetchall()] == baseline_before
+    result = upgraded.get_session_usage_detail(
+        "s", start=upgraded_marker["cutover_at"]
+    )
+    assert result["coverage"]["status"] == "PARTIAL"
+    assert result["totals"]["input_tokens"] == 5
+    upgraded.close()
+
+
+_INITIALIZATION_CRASH_POINTS = (
+    "before_schema_ddl",
+    "after_schema_tables",
+    "after_schema_indexes",
+    "before_epoch_identity",
+    "after_epoch_identity",
+    "during_baseline_capture",
+    "after_baseline",
+    "after_high_water",
+    "after_integrity_binding",
+    "before_commit",
+    "after_commit",
+)
+
+
+@pytest.mark.parametrize("failure_point", _INITIALIZATION_CRASH_POINTS)
+def test_first_initialization_crash_matrix_is_retryable(
+    tmp_path, monkeypatch, failure_point
+):
+    path = tmp_path / f"{failure_point}.db"
+    armed = True
+
+    def crash_once(self, point):
+        nonlocal armed
+        if armed and point == failure_point:
+            armed = False
+            raise RuntimeError(f"injected initialization crash: {point}")
+
+    monkeypatch.setattr(
+        hermes_state_schema.SessionSchemaMixin,
+        "_usage_epoch_init_checkpoint",
+        crash_once,
+    )
+    with pytest.raises(RuntimeError, match="injected initialization crash"):
+        SessionDB(db_path=path)
+
+    raw = sqlite3.connect(path)
+    epoch_committed = _table_exists(raw, SESSION_USAGE_TRUSTED_EPOCH_TABLE)
+    if failure_point == "after_commit":
+        assert epoch_committed
+        assert _schema_epoch_generation(raw) == 1
+        assert _epoch_identity(raw) is not None
+        assert raw.execute(
+            "SELECT COUNT(*) FROM state_meta WHERE key IN (?, ?)",
+            (
+                SESSION_USAGE_RECONCILIATION_KEY,
+                SESSION_USAGE_RECONCILIATION_EPOCH_KEY,
+            ),
+        ).fetchone()[0] == 2
+    else:
+        assert not epoch_committed
+        assert _schema_epoch_generation(raw) in (None, 0)
+        if _table_exists(raw, "state_meta"):
+            assert raw.execute(
+                "SELECT COUNT(*) FROM state_meta WHERE key IN (?, ?)",
+                (
+                    SESSION_USAGE_RECONCILIATION_KEY,
+                    SESSION_USAGE_RECONCILIATION_EPOCH_KEY,
+                ),
+            ).fetchone()[0] == 0
+        if _table_exists(raw, "session_usage_reconciliation_baseline"):
+            assert raw.execute(
+                "SELECT COUNT(*) FROM session_usage_reconciliation_baseline"
+            ).fetchone()[0] == 0
+    raw.close()
+
+    recovered = SessionDB(db_path=path)
+    marker = _marker(recovered)
+    assert marker["version"] == SESSION_USAGE_RECONCILIATION_VERSION
+    assert _epoch_identity(recovered._conn) == (
+        marker["epoch_generation"],
+        marker["generation"],
+        marker["cutover_at"],
+    )
+    assert _schema_epoch_generation(recovered._conn) == marker[
+        "epoch_generation"
+    ]
+    recovered.close()
+
+    reopened = SessionDB(db_path=path)
+    assert _marker(reopened) == marker
+    reopened.close()
+
+
+def test_interrupted_legacy_initialization_does_not_commit_partial_baseline(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "legacy-interrupted.db"
+    db = SessionDB(db_path=path)
+    db.create_session("legacy", "cli")
+    db._conn.execute(
+        "INSERT INTO session_model_usage "
+        "(session_id, model, billing_provider, billing_base_url, billing_mode, "
+        "task, api_call_count, input_tokens) "
+        "VALUES ('legacy', 'm', 'p', '', '', '', 3, 105)"
+    )
+    db._conn.execute(
+        "INSERT INTO session_usage_events "
+        "(session_id, recorded_at, model, billing_provider, api_call_count, "
+        "input_tokens) VALUES ('legacy', ?, 'm', 'p', 1, 5)",
+        (time.time() - 1,),
+    )
+    _force_new_cutover(db)
+    db.close()
+
+    armed = True
+
+    def crash_after_baseline(self, point):
+        nonlocal armed
+        if armed and point == "after_baseline":
+            armed = False
+            raise RuntimeError("injected legacy initialization crash")
+
+    monkeypatch.setattr(
+        hermes_state_schema.SessionSchemaMixin,
+        "_usage_epoch_init_checkpoint",
+        crash_after_baseline,
+    )
+    with pytest.raises(RuntimeError, match="legacy initialization crash"):
+        SessionDB(db_path=path)
+
+    raw = sqlite3.connect(path)
+    assert not _table_exists(raw, SESSION_USAGE_TRUSTED_EPOCH_TABLE)
+    assert _schema_epoch_generation(raw) == 0
+    assert raw.execute(
+        "SELECT COUNT(*) FROM session_usage_reconciliation_baseline"
+    ).fetchone()[0] == 0
+    raw.close()
+
+    recovered = SessionDB(db_path=path)
+    marker = _marker(recovered)
+    assert marker["event_id_high_water"] == 1
+    assert tuple(recovered._conn.execute(
+        "SELECT api_call_count, input_tokens "
+        "FROM session_usage_reconciliation_baseline "
+        "WHERE session_id = 'legacy'"
+    ).fetchone()) == (3, 105)
+    recovered.close()
+
+
+@pytest.mark.parametrize(
+    "damage",
+    (
+        "baseline_table_recreated_empty",
+        "epoch_row_missing",
+        "epoch_table_missing",
+        "altered_generation_number",
+        "active_schema_shell_missing_state",
+        "inconsistent_generation_integrity",
+        "all_epoch_and_cutover_artifacts_removed",
+        "schema_generation_mismatch",
+    ),
+)
+def test_trusted_epoch_extended_corruption_never_rebaselines(tmp_path, damage):
+    path = tmp_path / f"epoch-{damage}.db"
+    marker = _create_cutover_with_live_gap(path)
+    raw = sqlite3.connect(path)
+    if damage == "baseline_table_recreated_empty":
+        raw.execute("DROP TABLE session_usage_reconciliation_baseline")
+    elif damage == "epoch_row_missing":
+        raw.execute(f"DELETE FROM {SESSION_USAGE_TRUSTED_EPOCH_TABLE}")
+    elif damage == "epoch_table_missing":
+        raw.execute(f"DROP TABLE {SESSION_USAGE_TRUSTED_EPOCH_TABLE}")
+    elif damage == "altered_generation_number":
+        raw.execute(
+            f"UPDATE {SESSION_USAGE_TRUSTED_EPOCH_TABLE} SET generation = 2"
+        )
+    elif damage == "active_schema_shell_missing_state":
+        raw.execute(f"DELETE FROM {SESSION_USAGE_TRUSTED_EPOCH_TABLE}")
+        raw.execute("DELETE FROM session_usage_reconciliation_baseline")
+        raw.execute(
+            "DELETE FROM state_meta WHERE key IN (?, ?)",
+            (
+                SESSION_USAGE_RECONCILIATION_KEY,
+                SESSION_USAGE_RECONCILIATION_EPOCH_KEY,
+            ),
+        )
+    elif damage == "inconsistent_generation_integrity":
+        _rewrite_cutover_record(
+            raw,
+            SESSION_USAGE_RECONCILIATION_EPOCH_KEY,
+            lambda value: value.__setitem__("epoch_generation", 2),
+        )
+    elif damage == "all_epoch_and_cutover_artifacts_removed":
+        raw.execute(f"DROP TABLE {SESSION_USAGE_TRUSTED_EPOCH_TABLE}")
+        raw.execute("DROP TABLE session_usage_reconciliation_baseline")
+        raw.execute(
+            "DELETE FROM state_meta WHERE key IN (?, ?)",
+            (
+                SESSION_USAGE_RECONCILIATION_KEY,
+                SESSION_USAGE_RECONCILIATION_EPOCH_KEY,
+            ),
+        )
+    elif damage == "schema_generation_mismatch":
+        raw.execute(
+            "UPDATE schema_version SET "
+            f"{SESSION_USAGE_TRUSTED_EPOCH_SCHEMA_COLUMN} = 2"
+        )
+    raw.commit()
+    raw.close()
+
+    readonly = SessionDB(db_path=path, read_only=True)
+    result = readonly.get_session_usage_detail(
+        "s", start=marker["cutover_at"]
+    )
+    assert result["coverage"]["status"] != "COMPLETE"
+    assert result["totals"] is None
+    readonly.close()
+
+    with pytest.raises(RuntimeError, match="trusted session usage cutover"):
+        SessionDB(db_path=path)
+
+    raw = sqlite3.connect(path)
+    assert _schema_epoch_generation(raw) >= 1
+    assert raw.execute(
+        "SELECT SUM(api_call_count), SUM(input_tokens) "
+        "FROM session_model_usage WHERE session_id = 's'"
+    ).fetchone() == (5, 115)
+    assert raw.execute(
+        "SELECT COUNT(*), COALESCE(SUM(input_tokens), 0) "
+        "FROM session_usage_events WHERE session_id = 's'"
+    ).fetchone() == (1, 5)
+    if _table_exists(raw, "session_usage_reconciliation_baseline"):
+        assert raw.execute(
+            "SELECT COALESCE(SUM(api_call_count), 0), "
+            "COALESCE(SUM(input_tokens), 0) "
+            "FROM session_usage_reconciliation_baseline"
+        ).fetchone() != (5, 115)
+    raw.close()

@@ -370,7 +370,11 @@ SESSION_USAGE_RECONCILIATION_EPOCH_KEY = (
     "session.usage.detail.reconciliation.v2.epoch"
 )
 SESSION_USAGE_RECONCILIATION_LEGACY_VERSION = 2
-SESSION_USAGE_RECONCILIATION_VERSION = 3
+SESSION_USAGE_RECONCILIATION_IDENTITY_VERSION = 3
+SESSION_USAGE_RECONCILIATION_VERSION = 4
+SESSION_USAGE_TRUSTED_EPOCH_GENERATION = 1
+SESSION_USAGE_TRUSTED_EPOCH_SCHEMA_COLUMN = "trusted_usage_epoch_generation"
+SESSION_USAGE_TRUSTED_EPOCH_TABLE = "session_usage_trusted_epoch"
 SESSION_USAGE_RECONCILIATION_ROUTE_FIELDS = (
     "session_id",
     "model",
@@ -444,6 +448,7 @@ def parse_session_usage_reconciliation_marker(value) -> dict:
     baseline_sha256 = marker.get("baseline_sha256")
     if version not in (
         SESSION_USAGE_RECONCILIATION_LEGACY_VERSION,
+        SESSION_USAGE_RECONCILIATION_IDENTITY_VERSION,
         SESSION_USAGE_RECONCILIATION_VERSION,
     ):
         raise ValueError("unsupported trusted usage cutover marker")
@@ -471,7 +476,11 @@ def parse_session_usage_reconciliation_marker(value) -> dict:
     ):
         raise ValueError("invalid trusted usage baseline digest")
     generation = marker.get("generation")
-    if version == SESSION_USAGE_RECONCILIATION_VERSION:
+    epoch_generation = marker.get("epoch_generation")
+    if version in (
+        SESSION_USAGE_RECONCILIATION_IDENTITY_VERSION,
+        SESSION_USAGE_RECONCILIATION_VERSION,
+    ):
         if (
             not isinstance(generation, str)
             or len(generation) != 32
@@ -480,13 +489,62 @@ def parse_session_usage_reconciliation_marker(value) -> dict:
             raise ValueError("invalid trusted usage cutover generation")
     elif generation is not None:
         raise ValueError("invalid legacy trusted usage cutover marker")
+    if version == SESSION_USAGE_RECONCILIATION_VERSION:
+        if (
+            isinstance(epoch_generation, bool)
+            or not isinstance(epoch_generation, int)
+            or epoch_generation < 1
+        ):
+            raise ValueError("invalid trusted usage epoch generation")
+    elif epoch_generation is not None:
+        raise ValueError("invalid legacy trusted usage epoch generation")
     return {
         "version": version,
         "generation": generation,
+        "epoch_generation": epoch_generation,
         "cutover_at": float(cutover_at),
         "event_id_high_water": event_id_high_water,
         "baseline_row_count": baseline_row_count,
         "baseline_sha256": baseline_sha256,
+    }
+
+
+def parse_session_usage_trusted_epoch(row) -> dict:
+    """Parse and validate the independent trusted-epoch identity row."""
+    if row is None:
+        raise ValueError("missing trusted usage epoch identity")
+    try:
+        singleton = row["singleton"]
+        generation = row["generation"]
+        epoch_id = row["epoch_id"]
+        activated_at = row["activated_at"]
+    except (IndexError, KeyError, TypeError) as exc:
+        raise ValueError("invalid trusted usage epoch identity") from exc
+    if isinstance(singleton, bool) or singleton != 1:
+        raise ValueError("invalid trusted usage epoch singleton")
+    if (
+        isinstance(generation, bool)
+        or not isinstance(generation, int)
+        or generation < 1
+    ):
+        raise ValueError("invalid trusted usage epoch generation")
+    if (
+        not isinstance(epoch_id, str)
+        or len(epoch_id) != 32
+        or any(char not in "0123456789abcdef" for char in epoch_id)
+    ):
+        raise ValueError("invalid trusted usage epoch id")
+    if (
+        isinstance(activated_at, bool)
+        or not isinstance(activated_at, (int, float))
+        or not math.isfinite(float(activated_at))
+        or float(activated_at) < 0
+    ):
+        raise ValueError("invalid trusted usage epoch activation timestamp")
+    return {
+        "generation": generation,
+        "epoch_id": epoch_id,
+        "activated_at": float(activated_at),
     }
 
 
@@ -541,7 +599,9 @@ _FTS_TRIGGERS = (
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
-    version INTEGER NOT NULL
+    version INTEGER NOT NULL,
+    trusted_usage_epoch_generation INTEGER NOT NULL DEFAULT 0
+        CHECK (trusted_usage_epoch_generation >= 0)
 );
 
 CREATE TABLE IF NOT EXISTS system_prompts (

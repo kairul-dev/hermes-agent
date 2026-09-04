@@ -99,6 +99,9 @@ from hermes_state_common import (  # noqa: F401  (re-exported for back-compat)
     SESSION_USAGE_RECONCILIATION_KEY,
     SESSION_USAGE_RECONCILIATION_METRIC_FIELDS,
     SESSION_USAGE_RECONCILIATION_ROUTE_FIELDS,
+    SESSION_USAGE_RECONCILIATION_VERSION,
+    SESSION_USAGE_TRUSTED_EPOCH_SCHEMA_COLUMN,
+    SESSION_USAGE_TRUSTED_EPOCH_TABLE,
     _PREVIEW_CONTENT_SQL,
     _PREVIEW_HEAD_CHARS,
     _PREVIEW_MAX_CHARS,
@@ -110,6 +113,7 @@ from hermes_state_common import (  # noqa: F401  (re-exported for back-compat)
     _read_lock_holder_record,
     is_advisory_lock_contention,
     parse_session_usage_reconciliation_marker,
+    parse_session_usage_trusted_epoch,
     session_usage_reconciliation_baseline_digest,
 )
 from hermes_state_portability import SessionPortabilityMixin
@@ -11018,6 +11022,33 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                 f"SELECT {baseline_projection} "
                 "FROM session_usage_reconciliation_baseline"
             ).fetchall()
+            epoch_identity_table = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                (SESSION_USAGE_TRUSTED_EPOCH_TABLE,),
+            ).fetchone()
+            epoch_identity_rows = []
+            if epoch_identity_table is not None:
+                epoch_identity_rows = conn.execute(
+                    f"SELECT singleton, generation, epoch_id, activated_at "
+                    f"FROM {SESSION_USAGE_TRUSTED_EPOCH_TABLE}"
+                ).fetchall()
+            schema_version_columns = {
+                str(row[1])
+                for row in conn.execute(
+                    'PRAGMA table_info("schema_version")'
+                ).fetchall()
+            }
+            schema_epoch_generation = None
+            if (
+                SESSION_USAGE_TRUSTED_EPOCH_SCHEMA_COLUMN
+                in schema_version_columns
+            ):
+                schema_epoch_rows = conn.execute(
+                    f"SELECT {SESSION_USAGE_TRUSTED_EPOCH_SCHEMA_COLUMN} "
+                    "FROM schema_version"
+                ).fetchall()
+                if len(schema_epoch_rows) == 1:
+                    schema_epoch_generation = schema_epoch_rows[0][0]
             started_row = conn.execute(
                 f"SELECT MIN(started_at) FROM sessions "
                 f"WHERE id IN ({placeholders})",
@@ -11045,6 +11076,43 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         if epoch != reconciliation:
             return _unavailable(
                 "trusted_cutover_epoch_inconsistent", ids=session_ids
+            )
+        if reconciliation["version"] == SESSION_USAGE_RECONCILIATION_VERSION:
+            if (
+                epoch_identity_table is None
+                or len(epoch_identity_rows) != 1
+                or isinstance(schema_epoch_generation, bool)
+                or not isinstance(schema_epoch_generation, int)
+                or schema_epoch_generation < 1
+            ):
+                return _unavailable(
+                    "trusted_epoch_identity_unavailable", ids=session_ids
+                )
+            try:
+                epoch_identity = parse_session_usage_trusted_epoch(
+                    epoch_identity_rows[0]
+                )
+            except ValueError:
+                return _unavailable(
+                    "trusted_epoch_identity_invalid", ids=session_ids
+                )
+            if (
+                epoch_identity["generation"]
+                != reconciliation["epoch_generation"]
+                or schema_epoch_generation != epoch_identity["generation"]
+                or epoch_identity["epoch_id"] != reconciliation["generation"]
+                or epoch_identity["activated_at"]
+                != reconciliation["cutover_at"]
+            ):
+                return _unavailable(
+                    "trusted_epoch_identity_inconsistent", ids=session_ids
+                )
+        elif epoch_identity_table is not None or schema_epoch_generation not in (
+            None,
+            0,
+        ):
+            return _unavailable(
+                "trusted_epoch_identity_inconsistent", ids=session_ids
             )
         if (
             len(baseline_manifest_rows)

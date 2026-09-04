@@ -188,6 +188,7 @@ def test_route_window_excludes_rows_before_and_after(client, profile_homes):
         SESSION_USAGE_DETAIL_COVERAGE_KEY,
         SESSION_USAGE_RECONCILIATION_EPOCH_KEY,
         SESSION_USAGE_RECONCILIATION_KEY,
+        SESSION_USAGE_TRUSTED_EPOCH_TABLE,
     )
 
     db = SessionDB(db_path=profile_homes["default"] / "state.db")
@@ -215,6 +216,10 @@ def test_route_window_excludes_rows_before_and_after(client, profile_homes):
                 (marker_value, SESSION_USAGE_RECONCILIATION_KEY),
                 (marker_value, SESSION_USAGE_RECONCILIATION_EPOCH_KEY),
             ),
+        )
+        db._conn.execute(
+            f"UPDATE {SESSION_USAGE_TRUSTED_EPOCH_TABLE} SET activated_at = ?",
+            (base - 10,),
         )
         db.create_session("window-api", "cli", model="m")
         for timestamp, tokens in (
@@ -273,6 +278,60 @@ def test_sqlite_busy_failure_is_retryable_not_zero(
     assert response.status_code == 503
     assert "retry" in response.json()["detail"].lower()
     assert "totals" not in response.json()
+
+
+def test_complete_cutover_erasure_returns_503_not_false_exactness(
+    client, profile_homes
+):
+    from hermes_state import SessionDB
+    from hermes_state_common import (
+        SESSION_USAGE_RECONCILIATION_EPOCH_KEY,
+        SESSION_USAGE_RECONCILIATION_KEY,
+        SESSION_USAGE_TRUSTED_EPOCH_TABLE,
+    )
+
+    home = profile_homes["default"]
+    _seed_usage(home, "damaged-epoch", 5)
+    db = SessionDB(db_path=home / "state.db")
+    try:
+        epoch_before = tuple(db._conn.execute(
+            f"SELECT generation, epoch_id, activated_at "
+            f"FROM {SESSION_USAGE_TRUSTED_EPOCH_TABLE} WHERE singleton = 1"
+        ).fetchone())
+        db._conn.execute(
+            "DELETE FROM state_meta WHERE key IN (?, ?)",
+            (
+                SESSION_USAGE_RECONCILIATION_KEY,
+                SESSION_USAGE_RECONCILIATION_EPOCH_KEY,
+            ),
+        )
+        db._conn.execute("DROP TABLE session_usage_reconciliation_baseline")
+    finally:
+        db.close()
+
+    response = client.get("/api/sessions/damaged-epoch/usage")
+
+    assert response.status_code == 503
+    assert "trusted accounting state" in response.json()["detail"]
+    assert "totals" not in response.json()
+    raw = SessionDB(db_path=home / "state.db", read_only=True)
+    try:
+        assert tuple(raw._conn.execute(
+            f"SELECT generation, epoch_id, activated_at "
+            f"FROM {SESSION_USAGE_TRUSTED_EPOCH_TABLE} WHERE singleton = 1"
+        ).fetchone()) == epoch_before
+        assert raw._conn.execute(
+            "SELECT 1 FROM state_meta WHERE key IN (?, ?)",
+            (
+                SESSION_USAGE_RECONCILIATION_KEY,
+                SESSION_USAGE_RECONCILIATION_EPOCH_KEY,
+            ),
+        ).fetchone() is None
+        assert raw._conn.execute(
+            "SELECT COUNT(*) FROM session_usage_reconciliation_baseline"
+        ).fetchone()[0] == 0
+    finally:
+        raw.close()
 
 
 def test_public_api_returns_capped_detail_events(client, profile_homes):

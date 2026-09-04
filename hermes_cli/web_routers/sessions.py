@@ -668,6 +668,12 @@ async def get_session_usage(
         raise
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        _log.exception("GET /api/sessions/%s/usage failed", session_id)
+        raise HTTPException(
+            status_code=503,
+            detail="Session usage trusted accounting state is unavailable.",
+        ) from exc
     except sqlite3.OperationalError as exc:
         _log.exception("GET /api/sessions/%s/usage failed", session_id)
         transient = is_transient_sqlite_error(exc)

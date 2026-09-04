@@ -15,6 +15,8 @@ from hermes_state_common import (
     SESSION_USAGE_DETAIL_COVERAGE_KEY,
     SESSION_USAGE_RECONCILIATION_EPOCH_KEY,
     SESSION_USAGE_RECONCILIATION_KEY,
+    SESSION_USAGE_TRUSTED_EPOCH_SCHEMA_COLUMN,
+    SESSION_USAGE_TRUSTED_EPOCH_TABLE,
     parse_session_usage_reconciliation_marker,
 )
 
@@ -358,6 +360,11 @@ def test_upgrade_baseline_allows_exact_post_activation_window(tmp_path):
         ),
     )
     db._conn.execute("DROP TABLE session_usage_reconciliation_baseline")
+    db._conn.execute(f"DROP TABLE {SESSION_USAGE_TRUSTED_EPOCH_TABLE}")
+    db._conn.execute(
+        "UPDATE schema_version SET "
+        f"{SESSION_USAGE_TRUSTED_EPOCH_SCHEMA_COLUMN} = 0"
+    )
     db.close()
 
     db = SessionDB(db_path=path)

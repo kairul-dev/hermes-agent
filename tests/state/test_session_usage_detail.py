@@ -14,6 +14,7 @@ from hermes_state_common import (
     SESSION_USAGE_RECONCILIATION_KEY,
     SESSION_USAGE_RECONCILIATION_METRIC_FIELDS,
     SESSION_USAGE_RECONCILIATION_ROUTE_FIELDS,
+    SESSION_USAGE_TRUSTED_EPOCH_TABLE,
     session_usage_reconciliation_baseline_digest,
 )
 
@@ -52,6 +53,10 @@ def _set_coverage_start(db: SessionDB, value: float) -> None:
             (marker_value, SESSION_USAGE_RECONCILIATION_KEY),
             (marker_value, SESSION_USAGE_RECONCILIATION_EPOCH_KEY),
         ),
+    )
+    db._conn.execute(
+        f"UPDATE {SESSION_USAGE_TRUSTED_EPOCH_TABLE} SET activated_at = ?",
+        (value,),
     )
     db._conn.execute(
         "UPDATE state_meta SET value = ? WHERE key = ?",
