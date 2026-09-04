@@ -13,6 +13,7 @@ from hermes_state import SessionDB
 from hermes_state_common import (
     SESSION_USAGE_DETAIL_BASELINE_KEY,
     SESSION_USAGE_DETAIL_COVERAGE_KEY,
+    SESSION_USAGE_RECONCILIATION_EPOCH_KEY,
     SESSION_USAGE_RECONCILIATION_KEY,
     parse_session_usage_reconciliation_marker,
 )
@@ -348,13 +349,15 @@ def test_upgrade_baseline_allows_exact_post_activation_window(tmp_path):
         "VALUES ('historical', 'old', 'p', '', '', '', 1, 99)"
     )
     db._conn.execute(
-        "DELETE FROM state_meta WHERE key IN (?, ?, ?)",
+        "DELETE FROM state_meta WHERE key IN (?, ?, ?, ?)",
         (
             SESSION_USAGE_DETAIL_COVERAGE_KEY,
             SESSION_USAGE_DETAIL_BASELINE_KEY,
             SESSION_USAGE_RECONCILIATION_KEY,
+            SESSION_USAGE_RECONCILIATION_EPOCH_KEY,
         ),
     )
+    db._conn.execute("DROP TABLE session_usage_reconciliation_baseline")
     db.close()
 
     db = SessionDB(db_path=path)

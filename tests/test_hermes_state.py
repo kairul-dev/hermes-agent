@@ -2031,6 +2031,7 @@ class TestFtsRebuildLoopWithoutTrigram:
         conn = sqlite3.connect(str(db_path))
         try:
             conn.executescript(SCHEMA_SQL)
+            conn.execute("DROP TABLE session_usage_reconciliation_baseline")
             conn.executescript("""
                 DROP TABLE IF EXISTS messages_fts;
                 DROP TABLE IF EXISTS messages_fts_trigram;
@@ -3554,6 +3555,7 @@ class TestFTSExternalContentMigration:
         """Build a v22-shaped DB by hand: inline FTS tables + concat triggers."""
         conn = sqlite3.connect(str(db_path))
         conn.executescript(SCHEMA_SQL)
+        conn.execute("DROP TABLE session_usage_reconciliation_baseline")
         # Replace the current (v23) FTS objects with the v22 inline shape.
         conn.executescript("""
             DROP TABLE IF EXISTS messages_fts;
@@ -3653,6 +3655,7 @@ class TestFTSExternalContentMigration:
         # but with the old tool_calls-inclusive trigram projection.
         conn = sqlite3.connect(str(db_path))
         conn.executescript(SCHEMA_SQL)
+        conn.execute("DROP TABLE session_usage_reconciliation_baseline")
         conn.executescript(FTS_SQL)
         conn.executescript(
             """

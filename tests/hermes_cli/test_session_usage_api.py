@@ -186,6 +186,7 @@ def test_route_window_excludes_rows_before_and_after(client, profile_homes):
     from hermes_state_common import (
         SESSION_USAGE_DETAIL_BASELINE_KEY,
         SESSION_USAGE_DETAIL_COVERAGE_KEY,
+        SESSION_USAGE_RECONCILIATION_EPOCH_KEY,
         SESSION_USAGE_RECONCILIATION_KEY,
     )
 
@@ -205,11 +206,14 @@ def test_route_window_excludes_rows_before_and_after(client, profile_homes):
             (SESSION_USAGE_RECONCILIATION_KEY,),
         ).fetchone()[0])
         marker["cutover_at"] = base - 10
-        db._conn.execute(
+        marker_value = json.dumps(
+            marker, separators=(",", ":"), sort_keys=True
+        )
+        db._conn.executemany(
             "UPDATE state_meta SET value = ? WHERE key = ?",
             (
-                json.dumps(marker, separators=(",", ":"), sort_keys=True),
-                SESSION_USAGE_RECONCILIATION_KEY,
+                (marker_value, SESSION_USAGE_RECONCILIATION_KEY),
+                (marker_value, SESSION_USAGE_RECONCILIATION_EPOCH_KEY),
             ),
         )
         db.create_session("window-api", "cli", model="m")

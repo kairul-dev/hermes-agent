@@ -1,5 +1,6 @@
 """Trusted-cutover regressions for the Stage 4A S4A-06 remediation."""
 
+import json
 import sqlite3
 import threading
 import time
@@ -11,7 +12,10 @@ from hermes_state import SessionDB
 from hermes_state_common import (
     SESSION_USAGE_DETAIL_BASELINE_KEY,
     SESSION_USAGE_DETAIL_COVERAGE_KEY,
+    SESSION_USAGE_RECONCILIATION_EPOCH_KEY,
     SESSION_USAGE_RECONCILIATION_KEY,
+    SESSION_USAGE_RECONCILIATION_LEGACY_VERSION,
+    SESSION_USAGE_RECONCILIATION_VERSION,
     parse_session_usage_reconciliation_marker,
 )
 
@@ -25,15 +29,16 @@ def _marker(db):
     )
 
 
-def _force_new_cutover(db, *, drop_table=False):
+def _force_new_cutover(db):
+    """Return a test store to a genuine pre-v2 state with no v2 artifacts."""
     db._conn.execute(
-        "DELETE FROM state_meta WHERE key = ?",
-        (SESSION_USAGE_RECONCILIATION_KEY,),
+        "DELETE FROM state_meta WHERE key IN (?, ?)",
+        (
+            SESSION_USAGE_RECONCILIATION_KEY,
+            SESSION_USAGE_RECONCILIATION_EPOCH_KEY,
+        ),
     )
-    if drop_table:
-        db._conn.execute("DROP TABLE session_usage_reconciliation_baseline")
-    else:
-        db._conn.execute("DELETE FROM session_usage_reconciliation_baseline")
+    db._conn.execute("DROP TABLE session_usage_reconciliation_baseline")
 
 
 def _record(db, session_id, tokens, *, model="m", provider="p", timestamp=None):
@@ -76,8 +81,12 @@ def test_upgrade_does_not_absorb_existing_aggregate_detail_gap(tmp_path):
     db._conn.execute("DROP TABLE session_usage_activation_baseline")
     db._conn.execute("DROP TABLE session_usage_reconciliation_baseline")
     db._conn.execute(
-        "DELETE FROM state_meta WHERE key IN (?, ?)",
-        (SESSION_USAGE_DETAIL_BASELINE_KEY, SESSION_USAGE_RECONCILIATION_KEY),
+        "DELETE FROM state_meta WHERE key IN (?, ?, ?)",
+        (
+            SESSION_USAGE_DETAIL_BASELINE_KEY,
+            SESSION_USAGE_RECONCILIATION_KEY,
+            SESSION_USAGE_RECONCILIATION_EPOCH_KEY,
+        ),
     )
     db.close()
 
@@ -410,8 +419,9 @@ def test_cutover_transaction_rolls_back_baseline_and_marker(tmp_path):
         (SESSION_USAGE_RECONCILIATION_KEY,),
     ).fetchone() is None
     assert raw.execute(
-        "SELECT COUNT(*) FROM session_usage_reconciliation_baseline"
-    ).fetchone()[0] == 0
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+        "AND name = 'session_usage_reconciliation_baseline'"
+    ).fetchone() is None
     raw.execute("DROP TRIGGER fail_trusted_cutover")
     raw.commit()
     raw.close()
@@ -476,7 +486,7 @@ def test_cutover_write_lock_excludes_concurrent_usage_writer(tmp_path, monkeypat
     cutover_db.close()
 
 
-def test_incomplete_marker_fails_closed_and_baseline_without_marker_recuts(tmp_path):
+def test_incomplete_marker_and_markerless_baseline_both_fail_closed(tmp_path):
     path = tmp_path / "state.db"
     db = SessionDB(db_path=path)
     db.create_session("s", "cli")
@@ -498,42 +508,34 @@ def test_incomplete_marker_fails_closed_and_baseline_without_marker_recuts(tmp_p
     )
     raw.commit()
     raw.close()
-    repaired = SessionDB(db_path=path)
-    assert repaired._conn.execute(
-        "SELECT input_tokens FROM session_usage_reconciliation_baseline "
-        "WHERE session_id = 's'"
-    ).fetchone()[0] == 8
-    repaired.close()
+    with pytest.raises(RuntimeError, match="trusted session usage cutover"):
+        SessionDB(db_path=path)
 
 
-def test_partial_trusted_baseline_schema_repairs_before_cutover(tmp_path):
+def test_partial_trusted_baseline_schema_fails_closed_before_cutover(tmp_path):
     path = tmp_path / "state.db"
     db = SessionDB(db_path=path)
     db.create_session("s", "cli")
     _record(db, "s", 6)
-    _force_new_cutover(db, drop_table=True)
+    _force_new_cutover(db)
     db._conn.execute(
         "CREATE TABLE session_usage_reconciliation_baseline "
         "(session_id TEXT PRIMARY KEY)"
     )
     db.close()
 
-    first = SessionDB(db_path=path)
-    columns = {
-        row[1] for row in first._conn.execute(
-            'PRAGMA table_info("session_usage_reconciliation_baseline")'
-        )
-    }
-    assert {"model", "task", "input_tokens", "actual_cost_usd"} <= columns
-    assert first._conn.execute(
-        "SELECT input_tokens FROM session_usage_reconciliation_baseline "
-        "WHERE session_id = 's'"
+    with pytest.raises(RuntimeError, match="damaged trusted"):
+        SessionDB(db_path=path)
+
+    raw = sqlite3.connect(path)
+    assert raw.execute(
+        "SELECT input_tokens FROM session_model_usage WHERE session_id = 's'"
     ).fetchone()[0] == 6
-    first_marker = _marker(first)
-    first.close()
-    second = SessionDB(db_path=path)
-    assert _marker(second) == first_marker
-    second.close()
+    assert raw.execute(
+        "SELECT 1 FROM state_meta WHERE key = ?",
+        (SESSION_USAGE_RECONCILIATION_KEY,),
+    ).fetchone() is None
+    raw.close()
 
 
 def test_failed_queue_flush_after_cutover_remains_retryable(tmp_path, monkeypatch):
@@ -565,3 +567,302 @@ def test_failed_queue_flush_after_cutover_remains_retryable(tmp_path, monkeypatc
     assert recovered["coverage"]["status"] == "COMPLETE"
     assert recovered["totals"]["input_tokens"] == 5
     db.close()
+
+
+def _rewrite_cutover_record(conn, key, edit):
+    row = conn.execute(
+        "SELECT value FROM state_meta WHERE key = ?", (key,)
+    ).fetchone()
+    payload = json.loads(row[0])
+    edit(payload)
+    conn.execute(
+        "UPDATE state_meta SET value = ? WHERE key = ?",
+        (json.dumps(payload, separators=(",", ":"), sort_keys=True), key),
+    )
+
+
+def _cutover_state_snapshot(conn):
+    metadata = conn.execute(
+        "SELECT key, value FROM state_meta WHERE key IN (?, ?) ORDER BY key",
+        (
+            SESSION_USAGE_RECONCILIATION_KEY,
+            SESSION_USAGE_RECONCILIATION_EPOCH_KEY,
+        ),
+    ).fetchall()
+    baseline = conn.execute(
+        "SELECT * FROM session_usage_reconciliation_baseline "
+        "ORDER BY session_id, model, billing_provider, billing_base_url, "
+        "billing_mode, task"
+    ).fetchall()
+    return [tuple(row) for row in metadata], [tuple(row) for row in baseline]
+
+
+def _create_cutover_with_live_gap(path):
+    db = SessionDB(db_path=path)
+    db.create_session("s", "cli")
+    for model, calls, tokens in (
+        ("baseline-a", 1, 100),
+        ("baseline-b", 1, 3),
+        ("baseline-c", 1, 2),
+    ):
+        db._conn.execute(
+            "INSERT INTO session_model_usage "
+            "(session_id, model, billing_provider, billing_base_url, "
+            "billing_mode, task, api_call_count, input_tokens) "
+            "VALUES ('s', ?, 'p', '', '', '', ?, ?)",
+            (model, calls, tokens),
+        )
+    _force_new_cutover(db)
+    db.close()
+
+    db = SessionDB(db_path=path)
+    marker = _marker(db)
+    _record(
+        db,
+        "s",
+        5,
+        model="live",
+        provider="p",
+        timestamp=marker["cutover_at"],
+    )
+    db._conn.execute(
+        "UPDATE session_model_usage SET api_call_count = api_call_count + 1, "
+        "input_tokens = input_tokens + 5 "
+        "WHERE session_id = 's' AND model = 'live'"
+    )
+    result = db.get_session_usage_detail("s", start=marker["cutover_at"])
+    assert result["coverage"]["status"] == "PARTIAL"
+    assert result["totals"]["api_call_count"] == 1
+    assert result["totals"]["input_tokens"] == 5
+    db.close()
+    return marker
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "marker_only",
+        "baseline_only",
+        "high_water_only",
+        "integrity_binding_only",
+        "one_baseline_route",
+        "multiple_baseline_routes",
+        "marker_and_high_water",
+        "marker_and_integrity_binding",
+        "baseline_and_marker",
+        "altered_baseline_value",
+        "altered_high_water",
+        "altered_integrity_hash",
+    ],
+)
+def test_damaged_cutover_corruption_matrix_never_rebaselines(tmp_path, damage):
+    path = tmp_path / f"{damage}.db"
+    marker = _create_cutover_with_live_gap(path)
+    raw = sqlite3.connect(path)
+
+    if damage == "marker_only":
+        raw.execute(
+            "DELETE FROM state_meta WHERE key = ?",
+            (SESSION_USAGE_RECONCILIATION_KEY,),
+        )
+    elif damage == "baseline_only":
+        raw.execute("DELETE FROM session_usage_reconciliation_baseline")
+    elif damage == "high_water_only":
+        _rewrite_cutover_record(
+            raw,
+            SESSION_USAGE_RECONCILIATION_KEY,
+            lambda value: value.pop("event_id_high_water"),
+        )
+    elif damage == "integrity_binding_only":
+        raw.execute(
+            "DELETE FROM state_meta WHERE key = ?",
+            (SESSION_USAGE_RECONCILIATION_EPOCH_KEY,),
+        )
+    elif damage == "one_baseline_route":
+        raw.execute(
+            "DELETE FROM session_usage_reconciliation_baseline "
+            "WHERE model = 'baseline-a'"
+        )
+    elif damage == "multiple_baseline_routes":
+        raw.execute(
+            "DELETE FROM session_usage_reconciliation_baseline "
+            "WHERE model IN ('baseline-a', 'baseline-b')"
+        )
+    elif damage == "marker_and_high_water":
+        raw.execute(
+            "DELETE FROM state_meta WHERE key = ?",
+            (SESSION_USAGE_RECONCILIATION_KEY,),
+        )
+        _rewrite_cutover_record(
+            raw,
+            SESSION_USAGE_RECONCILIATION_EPOCH_KEY,
+            lambda value: value.pop("event_id_high_water"),
+        )
+    elif damage == "marker_and_integrity_binding":
+        raw.execute(
+            "DELETE FROM state_meta WHERE key IN (?, ?)",
+            (
+                SESSION_USAGE_RECONCILIATION_KEY,
+                SESSION_USAGE_RECONCILIATION_EPOCH_KEY,
+            ),
+        )
+    elif damage == "baseline_and_marker":
+        raw.execute("DELETE FROM session_usage_reconciliation_baseline")
+        raw.execute(
+            "DELETE FROM state_meta WHERE key = ?",
+            (SESSION_USAGE_RECONCILIATION_KEY,),
+        )
+    elif damage == "altered_baseline_value":
+        raw.execute(
+            "UPDATE session_usage_reconciliation_baseline "
+            "SET input_tokens = input_tokens + 1 "
+            "WHERE model = 'baseline-a'"
+        )
+    elif damage == "altered_high_water":
+        _rewrite_cutover_record(
+            raw,
+            SESSION_USAGE_RECONCILIATION_KEY,
+            lambda value: value.__setitem__("event_id_high_water", 1),
+        )
+    elif damage == "altered_integrity_hash":
+        _rewrite_cutover_record(
+            raw,
+            SESSION_USAGE_RECONCILIATION_KEY,
+            lambda value: value.__setitem__("baseline_sha256", "0" * 64),
+        )
+    raw.commit()
+    damaged_state = _cutover_state_snapshot(raw)
+    raw.close()
+
+    readonly = SessionDB(db_path=path, read_only=True)
+    result = readonly.get_session_usage_detail(
+        "s", start=marker["cutover_at"]
+    )
+    assert result["coverage"]["status"] != "COMPLETE"
+    readonly.close()
+
+    with pytest.raises(RuntimeError, match="trusted session usage cutover"):
+        SessionDB(db_path=path)
+
+    raw = sqlite3.connect(path)
+    assert _cutover_state_snapshot(raw) == damaged_state
+    aggregate = raw.execute(
+        "SELECT SUM(api_call_count), SUM(input_tokens) "
+        "FROM session_model_usage WHERE session_id = 's'"
+    ).fetchone()
+    detail = raw.execute(
+        "SELECT COUNT(*), COALESCE(SUM(input_tokens), 0) "
+        "FROM session_usage_events WHERE session_id = 's'"
+    ).fetchone()
+    raw.close()
+    assert aggregate == (5, 115)
+    assert detail == (1, 5)
+
+
+def test_true_first_cutover_atomically_captures_all_initial_state(tmp_path):
+    path = tmp_path / "state.db"
+    db = SessionDB(db_path=path)
+    db.create_session("legacy", "cli")
+    db._conn.execute(
+        "INSERT INTO session_model_usage "
+        "(session_id, model, billing_provider, billing_base_url, billing_mode, "
+        "task, api_call_count, input_tokens) "
+        "VALUES ('legacy', 'm', 'p', '', '', '', 3, 105)"
+    )
+    db._conn.execute(
+        "INSERT INTO session_usage_events "
+        "(session_id, recorded_at, model, billing_provider, api_call_count, "
+        "input_tokens) VALUES ('legacy', ?, 'm', 'p', 1, 5)",
+        (time.time() - 1,),
+    )
+    _force_new_cutover(db)
+    db.close()
+
+    initialized = SessionDB(db_path=path)
+    marker = _marker(initialized)
+    epoch = parse_session_usage_reconciliation_marker(
+        initialized._conn.execute(
+            "SELECT value FROM state_meta WHERE key = ?",
+            (SESSION_USAGE_RECONCILIATION_EPOCH_KEY,),
+        ).fetchone()[0]
+    )
+    baseline = initialized._conn.execute(
+        "SELECT api_call_count, input_tokens "
+        "FROM session_usage_reconciliation_baseline "
+        "WHERE session_id = 'legacy'"
+    ).fetchone()
+    assert tuple(baseline) == (3, 105)
+    assert marker == epoch
+    assert marker["version"] == SESSION_USAGE_RECONCILIATION_VERSION
+    assert marker["event_id_high_water"] == 1
+    initialized.close()
+
+    reopened = SessionDB(db_path=path)
+    assert _marker(reopened) == marker
+    reopened_epoch = parse_session_usage_reconciliation_marker(
+        reopened._conn.execute(
+            "SELECT value FROM state_meta WHERE key = ?",
+            (SESSION_USAGE_RECONCILIATION_EPOCH_KEY,),
+        ).fetchone()[0]
+    )
+    assert reopened_epoch == epoch
+    assert tuple(
+        reopened._conn.execute(
+            "SELECT api_call_count, input_tokens "
+            "FROM session_usage_reconciliation_baseline "
+            "WHERE session_id = 'legacy'"
+        ).fetchone()
+    ) == (3, 105)
+    reopened.close()
+
+
+def test_intact_legacy_v2_cutover_upgrades_without_rebaselining(tmp_path):
+    path = tmp_path / "state.db"
+    marker = _create_cutover_with_live_gap(path)
+    raw = sqlite3.connect(path)
+    legacy_marker = json.loads(
+        raw.execute(
+            "SELECT value FROM state_meta WHERE key = ?",
+            (SESSION_USAGE_RECONCILIATION_KEY,),
+        ).fetchone()[0]
+    )
+    legacy_marker["version"] = SESSION_USAGE_RECONCILIATION_LEGACY_VERSION
+    legacy_marker.pop("generation")
+    raw.execute(
+        "UPDATE state_meta SET value = ? WHERE key = ?",
+        (
+            json.dumps(legacy_marker, separators=(",", ":"), sort_keys=True),
+            SESSION_USAGE_RECONCILIATION_KEY,
+        ),
+    )
+    raw.execute(
+        "DELETE FROM state_meta WHERE key = ?",
+        (SESSION_USAGE_RECONCILIATION_EPOCH_KEY,),
+    )
+    baseline_before = _cutover_state_snapshot(raw)[1]
+    raw.commit()
+    raw.close()
+
+    upgraded = SessionDB(db_path=path)
+    upgraded_marker = _marker(upgraded)
+    upgraded_epoch = parse_session_usage_reconciliation_marker(
+        upgraded._conn.execute(
+            "SELECT value FROM state_meta WHERE key = ?",
+            (SESSION_USAGE_RECONCILIATION_EPOCH_KEY,),
+        ).fetchone()[0]
+    )
+    assert upgraded_marker == upgraded_epoch
+    assert upgraded_marker["version"] == SESSION_USAGE_RECONCILIATION_VERSION
+    assert upgraded_marker["cutover_at"] == marker["cutover_at"]
+    assert upgraded_marker["event_id_high_water"] == 0
+    assert [tuple(row) for row in upgraded._conn.execute(
+        "SELECT * FROM session_usage_reconciliation_baseline "
+        "ORDER BY session_id, model, billing_provider, billing_base_url, "
+        "billing_mode, task"
+    ).fetchall()] == baseline_before
+    result = upgraded.get_session_usage_detail(
+        "s", start=upgraded_marker["cutover_at"]
+    )
+    assert result["coverage"]["status"] == "PARTIAL"
+    assert result["totals"]["input_tokens"] == 5
+    upgraded.close()

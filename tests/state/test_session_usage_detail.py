@@ -10,6 +10,7 @@ from hermes_state import SessionDB
 from hermes_state_common import (
     SESSION_USAGE_DETAIL_BASELINE_KEY,
     SESSION_USAGE_DETAIL_COVERAGE_KEY,
+    SESSION_USAGE_RECONCILIATION_EPOCH_KEY,
     SESSION_USAGE_RECONCILIATION_KEY,
     SESSION_USAGE_RECONCILIATION_METRIC_FIELDS,
     SESSION_USAGE_RECONCILIATION_ROUTE_FIELDS,
@@ -32,20 +33,24 @@ def _set_coverage_start(db: SessionDB, value: float) -> None:
     event_id_high_water = db._conn.execute(
         "SELECT COALESCE(MAX(id), 0) FROM session_usage_events"
     ).fetchone()[0]
-    marker = {
-        "version": 2,
-        "cutover_at": value,
-        "event_id_high_water": event_id_high_water,
-        "baseline_row_count": len(baseline_rows),
-        "baseline_sha256": session_usage_reconciliation_baseline_digest(
+    marker = json.loads(db._conn.execute(
+        "SELECT value FROM state_meta WHERE key = ?",
+        (SESSION_USAGE_RECONCILIATION_KEY,),
+    ).fetchone()[0])
+    marker.update(
+        cutover_at=value,
+        event_id_high_water=event_id_high_water,
+        baseline_row_count=len(baseline_rows),
+        baseline_sha256=session_usage_reconciliation_baseline_digest(
             baseline_rows
         ),
-    }
-    db._conn.execute(
+    )
+    marker_value = json.dumps(marker, separators=(",", ":"), sort_keys=True)
+    db._conn.executemany(
         "UPDATE state_meta SET value = ? WHERE key = ?",
         (
-            json.dumps(marker, separators=(",", ":"), sort_keys=True),
-            SESSION_USAGE_RECONCILIATION_KEY,
+            (marker_value, SESSION_USAGE_RECONCILIATION_KEY),
+            (marker_value, SESSION_USAGE_RECONCILIATION_EPOCH_KEY),
         ),
     )
     db._conn.execute(
