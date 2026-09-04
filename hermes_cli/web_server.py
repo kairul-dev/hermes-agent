@@ -12544,6 +12544,7 @@ from hermes_cli.web_routers.sessions import (  # noqa: E402,F401 — legacy re-e
     delete_empty_sessions_endpoint,
     get_session_stats,
     get_session_detail,
+    get_session_usage,
     get_session_latest_descendant,
     get_session_messages,
     delete_session_endpoint,

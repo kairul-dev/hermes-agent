@@ -632,6 +632,68 @@ async def get_session_detail(session_id: str, profile: Optional[str] = None):
         db.close()
 
 
+@manage_router.get("/api/sessions/{session_id}/usage")
+async def get_session_usage(
+    session_id: str,
+    profile: Optional[str] = None,
+    scope: str = Query("physical"),
+    start: Optional[float] = Query(None, ge=0),
+    end: Optional[float] = Query(None, ge=0),
+):
+    """Return exact forward-only session usage through dashboard auth.
+
+    The optional Unix-second window is ``[start, end)``. An omitted end is a
+    snapshot through usage persisted when the service read begins. The
+    ``profile`` query is resolved by the dashboard's authoritative profile
+    router; callers cannot supply a database path.
+    """
+    def _read():
+        db = _open_session_db_for_profile(profile, read_only=True)
+        try:
+            sid = _resolve_session_id(db, session_id)
+            if not sid:
+                return None
+            return db.get_session_usage_detail(
+                sid,
+                scope=scope,
+                start=start,
+                end=end,
+            )
+        finally:
+            db.close()
+
+    try:
+        result = await asyncio.to_thread(_read)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except sqlite3.OperationalError as exc:
+        _log.exception("GET /api/sessions/%s/usage failed", session_id)
+        transient = is_transient_sqlite_error(exc)
+        raise HTTPException(
+            status_code=503 if transient else 500,
+            detail=(
+                "Session usage store is busy or temporarily unreadable; retry."
+                if transient
+                else "Session usage read failed."
+            ),
+        ) from exc
+    except (sqlite3.DatabaseError, UnicodeDecodeError) as exc:
+        _log.exception("GET /api/sessions/%s/usage failed", session_id)
+        raise HTTPException(
+            status_code=503,
+            detail="Session usage store is unavailable or malformed.",
+        ) from exc
+
+    if result is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    result["profile"] = (
+        _cron_profile_home(profile)[0] if profile else _cron_default_profile()
+    )
+    return result
+
+
 @manage_router.get("/api/sessions/{session_id}/latest-descendant")
 async def get_session_latest_descendant(
     session_id: str,
