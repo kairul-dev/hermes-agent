@@ -382,7 +382,7 @@ def _resolve_restart_drain_timeout() -> float:
         return DEFAULT_GATEWAY_RESTART_DRAIN_TIMEOUT
 
 
-def _eager_reconcile_own_session_db() -> None:
+def _eager_reconcile_own_session_db(db_path: Optional[Path] = None) -> None:
     """One writable open of this process's own state.db at startup.
 
     ``SessionDB.__init__`` runs ``_init_schema`` → ``_reconcile_columns``,
@@ -395,7 +395,12 @@ def _eager_reconcile_own_session_db() -> None:
     try:
         from hermes_state import SessionDB, _default_db_path
 
-        SessionDB(db_path=Path(_default_db_path()), read_only=False).close()
+        # Share the complete bootstrap boundary with request-time opens.
+        with _session_db_bootstrap_lock:
+            SessionDB(
+                db_path=db_path if db_path is not None else Path(_default_db_path()),
+                read_only=False,
+            ).close()
     except Exception as exc:
         _log.warning(
             "startup schema reconcile of state.db failed (%s); session "
@@ -425,8 +430,11 @@ async def _lifespan(app: "FastAPI"):
     # daemon thread so a locked store never delays the server socket (the
     # Desktop ready-probe times out at 10s, GH-73083); reads that land
     # before it finishes are still covered by the read-probe heal.
+    from hermes_state import _default_db_path
+
     threading.Thread(
         target=_eager_reconcile_own_session_db,
+        args=(Path(_default_db_path()),),
         daemon=True,
         name="statedb-eager-reconcile",
     ).start()
@@ -12566,7 +12574,7 @@ from hermes_cli.web_routers.sessions import (  # noqa: E402,F401 — legacy re-e
 # Concurrent first-load polls otherwise race sqlite file creation: the losers
 # open mode=ro against a store whose schema is still being written and every
 # query raises "no such table: sessions".
-_session_db_bootstrap_lock = threading.Lock()
+_session_db_bootstrap_lock = threading.RLock()
 
 
 def _session_db_read_probe_statements() -> tuple:
@@ -12599,7 +12607,21 @@ _session_db_heal_exhausted: set = set()
 _session_db_heal_warned: set = set()
 
 
-def _open_session_db_at_path(db_path: Path, *, read_only: bool):
+def _open_session_db_at_path(
+    db_path: Path, *, read_only: bool, reconcile: bool = True,
+):
+    # A visible SQLite file/header is not proof that bootstrap has committed.
+    # Eager startup and request bootstrap/heal share this boundary, including
+    # the read probe. No reader promotes in-flight DDL to damaged state.
+    with _session_db_bootstrap_lock:
+        return _open_session_db_at_path_coordinated(
+            db_path, read_only=read_only, reconcile=reconcile,
+        )
+
+
+def _open_session_db_at_path_coordinated(
+    db_path: Path, *, read_only: bool, reconcile: bool,
+):
     """Open a SessionDB at an explicit path with an explicit access mode.
 
     Writable opens keep the full init and repair path. Read-only opens
@@ -12633,6 +12655,23 @@ def _open_session_db_at_path(db_path: Path, *, read_only: bool):
         with _session_db_bootstrap_lock:
             if _needs_bootstrap():
                 SessionDB(db_path=db_path, read_only=False).close()
+
+    if not reconcile:
+        from hermes_state_common import has_trusted_usage_epoch
+
+        db = SessionDB(db_path=db_path, read_only=True)
+        try:
+            # Never heal established usage state. Only stores without committed
+            # epoch evidence may finish first initialization below.
+            if has_trusted_usage_epoch(db._conn):
+                return db
+        except BaseException:
+            db.close()
+            raise
+        db.close()
+        # A canonical schema shell can pass column probes before the first
+        # trusted epoch commits. Complete that recoverable initialization now.
+        SessionDB(db_path=db_path, read_only=False).close()
 
     def _open_probed():
         db = SessionDB(db_path=db_path, read_only=True)
@@ -12686,7 +12725,9 @@ def _open_session_db_at_path(db_path: Path, *, read_only: bool):
             return _open_probed()
 
 
-def _open_session_db_for_profile(profile: Optional[str], *, read_only: bool):
+def _open_session_db_for_profile(
+    profile: Optional[str], *, read_only: bool, reconcile: bool = True,
+):
     """Open a SessionDB with an explicit access mode for a profile.
 
     ``profile`` None/empty selects this process's own ``state.db``. A named
@@ -12700,6 +12741,8 @@ def _open_session_db_for_profile(profile: Optional[str], *, read_only: bool):
         db_path = Path(home) / "state.db"
     else:
         db_path = Path(_default_db_path())
+    if not reconcile:
+        return _open_session_db_at_path(db_path, read_only=read_only, reconcile=False)
     return _open_session_db_at_path(db_path, read_only=read_only)
 
 

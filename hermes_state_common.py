@@ -375,6 +375,60 @@ SESSION_USAGE_RECONCILIATION_VERSION = 4
 SESSION_USAGE_TRUSTED_EPOCH_GENERATION = 1
 SESSION_USAGE_TRUSTED_EPOCH_SCHEMA_COLUMN = "trusted_usage_epoch_generation"
 SESSION_USAGE_TRUSTED_EPOCH_TABLE = "session_usage_trusted_epoch"
+# Public codes are additive; coverage.reason keeps the existing diagnostic id.
+SESSION_USAGE_FAILURE_MESSAGES = {
+    "TRUSTED_USAGE_STATE_DAMAGED": (
+        "Exact session usage is unavailable because trusted accounting state is damaged."
+    ),
+    "ACCOUNTING_SYNCHRONIZATION_FAILED": (
+        "Exact session usage is unavailable because accounting synchronization failed; retry."
+    ),
+    "USAGE_STATE_UNAVAILABLE": "Exact session usage is temporarily unavailable; retry.",
+}
+SESSION_USAGE_TRUST_DAMAGE_REASONS = frozenset({
+    "detail_table_unavailable", "detail_schema_incompatible",
+    "activation_baseline_unavailable", "activation_baseline_incompatible",
+    "coverage_start_unknown", "coverage_start_invalid",
+    "trusted_cutover_epoch_inconsistent", "trusted_epoch_identity_unavailable",
+    "trusted_epoch_identity_invalid", "trusted_epoch_identity_inconsistent",
+    "trusted_cutover_baseline_incomplete", "trusted_usage_schema_unusable",
+})
+
+
+def has_trusted_usage_epoch(conn) -> bool:
+    """Read activation evidence without healing absent artifacts.
+
+    Call under a read snapshot or bootstrap coordination. Canonical generation-zero
+    schema shells have no active evidence and remain eligible for recovery.
+    """
+    tables = {row[0] for row in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table'"
+    )}
+    if SESSION_USAGE_TRUSTED_EPOCH_TABLE in tables:
+        return True
+    if "schema_version" in tables:
+        columns = {row[1] for row in conn.execute('PRAGMA table_info("schema_version")')}
+        if SESSION_USAGE_TRUSTED_EPOCH_SCHEMA_COLUMN in columns:
+            rows = conn.execute(
+                f"SELECT {SESSION_USAGE_TRUSTED_EPOCH_SCHEMA_COLUMN} FROM schema_version"
+            ).fetchall()
+            if len(rows) > 1 or any(row[0] != 0 for row in rows):
+                return True
+    return "state_meta" in tables and conn.execute(
+        "SELECT 1 FROM state_meta WHERE key IN (?, ?) LIMIT 1",
+        (SESSION_USAGE_RECONCILIATION_KEY, SESSION_USAGE_RECONCILIATION_EPOCH_KEY),
+    ).fetchone() is not None
+
+
+def session_usage_failure_coverage(code: str, *, reason: str = None) -> dict:
+    return {
+        "status": "UNAVAILABLE",
+        "reason": reason or code.lower(),
+        "reason_code": code,
+        "message": SESSION_USAGE_FAILURE_MESSAGES[code],
+    }
+
+
 SESSION_USAGE_RECONCILIATION_ROUTE_FIELDS = (
     "session_id",
     "model",

@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional  # noqa: F401
 
 from fastapi import APIRouter, HTTPException, Query, Request  # noqa: F401
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from hermes_cli.web_deps import late
 from hermes_cli.web_models import (
@@ -32,6 +32,7 @@ from hermes_cli.web_models import (
     SessionRename,
 )
 from hermes_state import is_malformed_db_error, is_transient_sqlite_error
+from hermes_state_common import session_usage_failure_coverage
 
 # Same logger the handlers used before extraction (identical logger object).
 _log = logging.getLogger("hermes_cli.web_server")
@@ -648,9 +649,9 @@ async def get_session_usage(
     router; callers cannot supply a database path.
     """
     def _read():
-        db = _open_session_db_for_profile(profile, read_only=True)
+        db = _open_session_db_for_profile(profile, read_only=True, reconcile=False)
         try:
-            sid = _resolve_session_id(db, session_id)
+            sid = db.resolve_session_id(session_id)
             if not sid:
                 return None
             return db.get_session_usage_detail(
@@ -668,35 +669,22 @@ async def get_session_usage(
         raise
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except RuntimeError as exc:
+    except (RuntimeError, sqlite3.DatabaseError, UnicodeDecodeError):
         _log.exception("GET /api/sessions/%s/usage failed", session_id)
-        raise HTTPException(
-            status_code=503,
-            detail="Session usage trusted accounting state is unavailable.",
-        ) from exc
-    except sqlite3.OperationalError as exc:
-        _log.exception("GET /api/sessions/%s/usage failed", session_id)
-        transient = is_transient_sqlite_error(exc)
-        raise HTTPException(
-            status_code=503 if transient else 500,
-            detail=(
-                "Session usage store is busy or temporarily unreadable; retry."
-                if transient
-                else "Session usage read failed."
-            ),
-        ) from exc
-    except (sqlite3.DatabaseError, UnicodeDecodeError) as exc:
-        _log.exception("GET /api/sessions/%s/usage failed", session_id)
-        raise HTTPException(
-            status_code=503,
-            detail="Session usage store is unavailable or malformed.",
-        ) from exc
+        return JSONResponse(status_code=503, content={
+            "coverage": session_usage_failure_coverage("USAGE_STATE_UNAVAILABLE"),
+            "totals": None,
+        })
 
     if result is None:
         raise HTTPException(status_code=404, detail="Session not found")
     result["profile"] = (
         _cron_profile_home(profile)[0] if profile else _cron_default_profile()
     )
+    if result.get("coverage", {}).get("reason_code") in {
+        "TRUSTED_USAGE_STATE_DAMAGED", "ACCOUNTING_SYNCHRONIZATION_FAILED",
+    }:
+        return JSONResponse(status_code=503, content=result)
     return result
 
 

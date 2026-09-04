@@ -114,6 +114,9 @@ from hermes_state_common import (  # noqa: F401  (re-exported for back-compat)
     is_advisory_lock_contention,
     parse_session_usage_reconciliation_marker,
     parse_session_usage_trusted_epoch,
+    has_trusted_usage_epoch,
+    session_usage_failure_coverage,
+    SESSION_USAGE_TRUST_DAMAGE_REASONS,
     session_usage_reconciliation_baseline_digest,
 )
 from hermes_state_portability import SessionPortabilityMixin
@@ -5567,16 +5570,10 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
             if not read_only:
                 preflight_db_writability(self.db_path, db_label="state.db")
 
-            # #68474 / #97568: Serialize startup across zero-byte check, quarantine,
-            # connect, and schema commit so concurrent openers don't race on an
-            # absent-path -> connect -> schema-commit window.
-            needs_startup_guard = (
-                not read_only
-                and (
-                    not self.db_path.exists()
-                    or is_zeroed_state_db(self.db_path)
-                )
-            )
+            # Every initializer participates, even after connect exposes a live
+            # zero-byte file or a header before schema/epoch commit. Header probes
+            # deliberately refuse live connections; they cannot authorize bypass
+            # of initialization coordination.
 
             def _handle_quarantine_if_zeroed(already_locked: bool = False):
                 if (
@@ -5669,22 +5666,17 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                             )
                         )
 
-            def _open_with_optional_startup_guard():
-                if needs_startup_guard:
-                    with quarantine_cross_process_lock(self.db_path) as lock_acquired:
-                        if not lock_acquired:
-                            logger.warning(
-                                "startup quarantine lock for %s not acquired within 5s; proceeding",
-                                self.db_path,
-                            )
-                        _handle_quarantine_if_zeroed(already_locked=lock_acquired)
-                        _connect_and_init_with_lock_patience()
-                else:
-                    _handle_quarantine_if_zeroed(already_locked=False)
+            def _open_with_startup_guard():
+                with quarantine_cross_process_lock(
+                    self.db_path, timeout=self._WRITE_PATIENCE_S,
+                ) as lock_acquired:
+                    if not lock_acquired:
+                        raise sqlite3.OperationalError("database initialization is busy")
+                    _handle_quarantine_if_zeroed(already_locked=True)
                     _connect_and_init_with_lock_patience()
 
             try:
-                _open_with_optional_startup_guard()
+                _open_with_startup_guard()
             except sqlite3.DatabaseError as exc:
                 # The malformed-schema class (e.g. a duplicate sqlite_master
                 # row for messages_fts) fails on the very first statement —
@@ -10905,6 +10897,18 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
             detail_started_at: Optional[float] = None,
         ) -> Dict[str, Any]:
             resolved_end = read_at if effective_end is None else effective_end
+            failure_coverage = {}
+            if reason == "accounting_flush_failed":
+                failure_coverage = session_usage_failure_coverage(
+                    "ACCOUNTING_SYNCHRONIZATION_FAILED", reason=reason
+                )
+            elif reason in SESSION_USAGE_TRUST_DAMAGE_REASONS:
+                with self._read_ctx() as conn:
+                    active = has_trusted_usage_epoch(conn)
+                if active:
+                    failure_coverage = session_usage_failure_coverage(
+                        "TRUSTED_USAGE_STATE_DAMAGED", reason=reason
+                    )
             return {
                 "capability": SESSION_USAGE_DETAIL_CAPABILITY,
                 "session_id": session_id,
@@ -10914,6 +10918,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                 "coverage": {
                     "status": "UNAVAILABLE",
                     "reason": reason,
+                    **failure_coverage,
                     "detail_started_at": detail_started_at,
                     "exact_start": None,
                     "exact_end": None,
@@ -10931,13 +10936,23 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
             if failure:
                 return _unavailable(failure)
             with self._usage_read_snapshot():
-                return self.get_session_usage_detail(
-                    session_id,
-                    scope=scope,
-                    start=start,
-                    end=end,
-                    route_limit=route_limit,
-                )
+                try:
+                    return self.get_session_usage_detail(
+                        session_id,
+                        scope=scope,
+                        start=start,
+                        end=end,
+                        route_limit=route_limit,
+                    )
+                except sqlite3.OperationalError as exc:
+                    # Missing integrity columns are damage; locks and I/O retain
+                    # their separate transport class.
+                    if getattr(exc, "sqlite_errorcode", None) != sqlite3.SQLITE_ERROR:
+                        raise
+                    with self._read_ctx() as conn:
+                        if not has_trusted_usage_epoch(conn):
+                            raise
+                    return _unavailable("trusted_usage_schema_unusable")
         read_at = self._usage_snapshot_local.read_at
 
         session = self.get_session(session_id)

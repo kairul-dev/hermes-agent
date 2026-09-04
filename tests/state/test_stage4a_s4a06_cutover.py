@@ -757,28 +757,7 @@ def _create_cutover_with_live_gap(path):
     return marker
 
 
-@pytest.mark.parametrize(
-    "damage",
-    [
-        "marker_only",
-        "baseline_only",
-        "high_water_only",
-        "integrity_binding_only",
-        "one_baseline_route",
-        "multiple_baseline_routes",
-        "marker_and_high_water",
-        "marker_and_integrity_binding",
-        "baseline_and_marker",
-        "altered_baseline_value",
-        "altered_high_water",
-        "altered_integrity_hash",
-    ],
-)
-def test_damaged_cutover_corruption_matrix_never_rebaselines(tmp_path, damage):
-    path = tmp_path / f"{damage}.db"
-    marker = _create_cutover_with_live_gap(path)
-    raw = sqlite3.connect(path)
-
+def _damage_cutover(raw, damage):
     if damage == "marker_only":
         raw.execute(
             "DELETE FROM state_meta WHERE key = ?",
@@ -849,6 +828,31 @@ def test_damaged_cutover_corruption_matrix_never_rebaselines(tmp_path, damage):
             SESSION_USAGE_RECONCILIATION_KEY,
             lambda value: value.__setitem__("baseline_sha256", "0" * 64),
         )
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "marker_only",
+        "baseline_only",
+        "high_water_only",
+        "integrity_binding_only",
+        "one_baseline_route",
+        "multiple_baseline_routes",
+        "marker_and_high_water",
+        "marker_and_integrity_binding",
+        "baseline_and_marker",
+        "altered_baseline_value",
+        "altered_high_water",
+        "altered_integrity_hash",
+    ],
+)
+def test_damaged_cutover_corruption_matrix_never_rebaselines(tmp_path, damage):
+    path = tmp_path / f"{damage}.db"
+    marker = _create_cutover_with_live_gap(path)
+    raw = sqlite3.connect(path)
+
+    _damage_cutover(raw, damage)
     raw.commit()
     damaged_state = _cutover_state_snapshot(raw)
     raw.close()
@@ -1194,23 +1198,7 @@ def test_interrupted_legacy_initialization_does_not_commit_partial_baseline(
     recovered.close()
 
 
-@pytest.mark.parametrize(
-    "damage",
-    (
-        "baseline_table_recreated_empty",
-        "epoch_row_missing",
-        "epoch_table_missing",
-        "altered_generation_number",
-        "active_schema_shell_missing_state",
-        "inconsistent_generation_integrity",
-        "all_epoch_and_cutover_artifacts_removed",
-        "schema_generation_mismatch",
-    ),
-)
-def test_trusted_epoch_extended_corruption_never_rebaselines(tmp_path, damage):
-    path = tmp_path / f"epoch-{damage}.db"
-    marker = _create_cutover_with_live_gap(path)
-    raw = sqlite3.connect(path)
+def _damage_epoch(raw, damage):
     if damage == "baseline_table_recreated_empty":
         raw.execute("DROP TABLE session_usage_reconciliation_baseline")
     elif damage == "epoch_row_missing":
@@ -1252,6 +1240,26 @@ def test_trusted_epoch_extended_corruption_never_rebaselines(tmp_path, damage):
             "UPDATE schema_version SET "
             f"{SESSION_USAGE_TRUSTED_EPOCH_SCHEMA_COLUMN} = 2"
         )
+
+
+@pytest.mark.parametrize(
+    "damage",
+    (
+        "baseline_table_recreated_empty",
+        "epoch_row_missing",
+        "epoch_table_missing",
+        "altered_generation_number",
+        "active_schema_shell_missing_state",
+        "inconsistent_generation_integrity",
+        "all_epoch_and_cutover_artifacts_removed",
+        "schema_generation_mismatch",
+    ),
+)
+def test_trusted_epoch_extended_corruption_never_rebaselines(tmp_path, damage):
+    path = tmp_path / f"epoch-{damage}.db"
+    marker = _create_cutover_with_live_gap(path)
+    raw = sqlite3.connect(path)
+    _damage_epoch(raw, damage)
     raw.commit()
     raw.close()
 

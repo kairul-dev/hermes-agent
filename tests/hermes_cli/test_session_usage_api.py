@@ -270,14 +270,14 @@ def test_sqlite_busy_failure_is_retryable_not_zero(
     monkeypatch.setattr(
         web_server,
         "_open_session_db_for_profile",
-        lambda profile, read_only: BusyDB(),
+        lambda profile, read_only, **kwargs: BusyDB(),
     )
 
     response = client.get("/api/sessions/busy/usage")
 
     assert response.status_code == 503
-    assert "retry" in response.json()["detail"].lower()
-    assert "totals" not in response.json()
+    assert response.json()["coverage"]["reason_code"] == "USAGE_STATE_UNAVAILABLE"
+    assert response.json()["totals"] is None
 
 
 def test_complete_cutover_erasure_returns_503_not_false_exactness(
@@ -312,8 +312,8 @@ def test_complete_cutover_erasure_returns_503_not_false_exactness(
     response = client.get("/api/sessions/damaged-epoch/usage")
 
     assert response.status_code == 503
-    assert "trusted accounting state" in response.json()["detail"]
-    assert "totals" not in response.json()
+    assert response.json()["coverage"]["reason_code"] == "TRUSTED_USAGE_STATE_DAMAGED"
+    assert response.json()["totals"] is None
     raw = SessionDB(db_path=home / "state.db", read_only=True)
     try:
         assert tuple(raw._conn.execute(
@@ -328,8 +328,8 @@ def test_complete_cutover_erasure_returns_503_not_false_exactness(
             ),
         ).fetchone() is None
         assert raw._conn.execute(
-            "SELECT COUNT(*) FROM session_usage_reconciliation_baseline"
-        ).fetchone()[0] == 0
+            "SELECT 1 FROM sqlite_master WHERE name = 'session_usage_reconciliation_baseline'"
+        ).fetchone() is None
     finally:
         raw.close()
 
