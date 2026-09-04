@@ -152,6 +152,72 @@ def test_missing_post_cutover_detail_fails_closed(tmp_path):
     db.close()
 
 
+def test_missing_trusted_marker_never_rebaselines_live_accounting_gap(tmp_path):
+    """Marker loss must not move the immutable trusted cutover forward."""
+    path = tmp_path / "state.db"
+    db = SessionDB(db_path=path)
+    db.create_session("s", "cli")
+    db._conn.execute(
+        "INSERT INTO session_model_usage "
+        "(session_id, model, billing_provider, billing_base_url, billing_mode, "
+        "task, api_call_count, input_tokens) "
+        "VALUES ('s', 'm', 'p', '', '', '', 3, 105)"
+    )
+    _force_new_cutover(db)
+    db.close()
+
+    db = SessionDB(db_path=path)
+    original_marker = _marker(db)
+    original_baseline = tuple(
+        db._conn.execute(
+            "SELECT api_call_count, input_tokens "
+            "FROM session_usage_reconciliation_baseline "
+            "WHERE session_id = 's'"
+        ).fetchone()
+    )
+    _record(db, "s", 5, timestamp=original_marker["cutover_at"])
+    db._conn.execute(
+        "UPDATE session_model_usage SET api_call_count = api_call_count + 1, "
+        "input_tokens = input_tokens + 5 WHERE session_id = 's'"
+    )
+    before_loss = db.get_session_usage_detail(
+        "s", start=original_marker["cutover_at"]
+    )
+    assert original_baseline == (3, 105)
+    assert original_marker["event_id_high_water"] == 0
+    assert before_loss["coverage"]["status"] == "PARTIAL"
+    assert before_loss["totals"]["api_call_count"] == 1
+    assert before_loss["totals"]["input_tokens"] == 5
+
+    db._conn.execute(
+        "DELETE FROM state_meta WHERE key = ?",
+        (SESSION_USAGE_RECONCILIATION_KEY,),
+    )
+    db.close()
+
+    with pytest.raises(RuntimeError, match="trusted session usage cutover"):
+        SessionDB(db_path=path)
+
+    raw = sqlite3.connect(path)
+    baseline_after = raw.execute(
+        "SELECT api_call_count, input_tokens "
+        "FROM session_usage_reconciliation_baseline WHERE session_id = 's'"
+    ).fetchone()
+    aggregate_after = raw.execute(
+        "SELECT api_call_count, input_tokens FROM session_model_usage "
+        "WHERE session_id = 's'"
+    ).fetchone()
+    detail_after = raw.execute(
+        "SELECT COUNT(*), COALESCE(SUM(input_tokens), 0) "
+        "FROM session_usage_events WHERE session_id = 's'"
+    ).fetchone()
+    raw.close()
+
+    assert baseline_after == (3, 105)
+    assert aggregate_after == (5, 115)
+    assert detail_after == (1, 5)
+
+
 @pytest.mark.parametrize("old_calls,old_tokens", [(0, 0), (1, 1), (3, 105)])
 def test_untrusted_old_detail_never_reduces_full_baseline(
     tmp_path, old_calls, old_tokens
