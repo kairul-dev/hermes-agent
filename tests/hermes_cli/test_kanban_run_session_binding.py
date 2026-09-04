@@ -101,6 +101,68 @@ def test_first_binding_is_idempotent_and_conflicts_fail_closed(claimed_run):
     assert kb.get_run(conn, run_id).worker_session_id == "session-one"
 
 
+def test_bound_session_cannot_bypass_wrong_claim(claimed_run):
+    conn, _db_path, _home, task_id, run_id, claim_lock = claimed_run
+    kb.bind_worker_session(
+        conn,
+        task_id=task_id,
+        run_id=run_id,
+        claim_lock=claim_lock,
+        session_id="session-one",
+    )
+
+    with pytest.raises(kb.RunSessionBindingError):
+        kb.bind_worker_session(
+            conn,
+            task_id=task_id,
+            run_id=run_id,
+            claim_lock="wrong-claim",
+            session_id="session-one",
+        )
+
+
+def test_bound_session_cannot_rebind_after_reclaim(claimed_run):
+    conn, _db_path, _home, task_id, run_id, claim_lock = claimed_run
+    kb.bind_worker_session(
+        conn,
+        task_id=task_id,
+        run_id=run_id,
+        claim_lock=claim_lock,
+        session_id="session-one",
+    )
+    assert kb.reclaim_task(conn, task_id, signal_fn=lambda *_args: None)
+
+    with pytest.raises(kb.RunSessionBindingError):
+        kb.bind_worker_session(
+            conn,
+            task_id=task_id,
+            run_id=run_id,
+            claim_lock=claim_lock,
+            session_id="session-one",
+        )
+
+
+def test_bound_session_cannot_rebind_after_normal_completion(claimed_run):
+    conn, _db_path, _home, task_id, run_id, claim_lock = claimed_run
+    kb.bind_worker_session(
+        conn,
+        task_id=task_id,
+        run_id=run_id,
+        claim_lock=claim_lock,
+        session_id="session-one",
+    )
+    assert kb.complete_task(conn, task_id, result="done", summary="complete")
+
+    with pytest.raises(kb.RunSessionBindingError):
+        kb.bind_worker_session(
+            conn,
+            task_id=task_id,
+            run_id=run_id,
+            claim_lock=claim_lock,
+            session_id="session-one",
+        )
+
+
 def test_worker_hook_binds_after_session_row_is_durable(claimed_run, monkeypatch):
     conn, _db_path, _home, task_id, run_id, claim_lock = claimed_run
     monkeypatch.setenv("HERMES_SESSION_SOURCE", "kanban")
@@ -141,6 +203,16 @@ def test_retry_attempts_bind_independently_and_completion_preserves_binding(clai
         claim_lock="claim-two",
         session_id="session-second",
     )
+    second_before = kb.get_run(conn, second_run_id)
+    with pytest.raises(kb.RunSessionBindingError):
+        kb.bind_worker_session(
+            conn,
+            task_id=task_id,
+            run_id=first_run_id,
+            claim_lock=first_lock,
+            session_id="session-first",
+        )
+    assert kb.get_run(conn, second_run_id) == second_before
     kb.complete_task(conn, task_id, result="done", summary="complete")
 
     runs = {run.id: run for run in kb.list_runs(conn, task_id)}

@@ -4558,14 +4558,6 @@ def bind_worker_session(
             raise RunSessionBindingError(
                 f"run {run_id} does not belong to task {task_id}"
             )
-        existing = str(run_row["worker_session_id"] or "").strip()
-        if existing:
-            if existing != session_id:
-                raise RunSessionBindingConflictError(
-                    f"run {run_id} is already bound to session {existing}"
-                )
-            return Run.from_row(run_row)
-
         task_row = conn.execute(
             "SELECT status, current_run_id, claim_lock FROM tasks WHERE id = ?",
             (task_id,),
@@ -4587,6 +4579,14 @@ def bind_worker_session(
             raise RunSessionBindingError(
                 f"run {run_id} is no longer active under this claim"
             )
+
+        existing = str(run_row["worker_session_id"] or "").strip()
+        if existing:
+            if existing != session_id:
+                raise RunSessionBindingConflictError(
+                    f"run {run_id} is already bound to session {existing}"
+                )
+            return Run.from_row(run_row)
 
         updated = conn.execute(
             """
