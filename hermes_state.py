@@ -95,6 +95,7 @@ from hermes_state_common import (  # noqa: F401  (re-exported for back-compat)
     SCHEMA_VERSION,
     SESSION_USAGE_DETAIL_BASELINE_KEY,
     SESSION_USAGE_DETAIL_COVERAGE_KEY,
+    SESSION_USAGE_RECONCILIATION_EPOCH_KEY,
     SESSION_USAGE_RECONCILIATION_KEY,
     SESSION_USAGE_RECONCILIATION_METRIC_FIELDS,
     SESSION_USAGE_RECONCILIATION_ROUTE_FIELDS,
@@ -11005,6 +11006,10 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                 "SELECT value FROM state_meta WHERE key = ?",
                 (SESSION_USAGE_RECONCILIATION_KEY,),
             ).fetchone()
+            trusted_epoch = conn.execute(
+                "SELECT value FROM state_meta WHERE key = ?",
+                (SESSION_USAGE_RECONCILIATION_EPOCH_KEY,),
+            ).fetchone()
             baseline_projection = ", ".join(
                 (*SESSION_USAGE_RECONCILIATION_ROUTE_FIELDS,
                  *SESSION_USAGE_RECONCILIATION_METRIC_FIELDS)
@@ -11027,12 +11032,19 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
             reconciliation = parse_session_usage_reconciliation_marker(
                 trusted_marker[0]
             )
+            epoch = parse_session_usage_reconciliation_marker(
+                trusted_epoch[0] if trusted_epoch is not None else None
+            )
             baseline_digest = session_usage_reconciliation_baseline_digest(
                 baseline_manifest_rows
             )
         except ValueError:
             return _unavailable(
                 "coverage_start_invalid", ids=session_ids
+            )
+        if epoch != reconciliation:
+            return _unavailable(
+                "trusted_cutover_epoch_inconsistent", ids=session_ids
             )
         if (
             len(baseline_manifest_rows)

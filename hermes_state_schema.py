@@ -35,7 +35,9 @@ from hermes_state_common import (
     SCHEMA_VERSION,
     SESSION_USAGE_DETAIL_BASELINE_KEY,
     SESSION_USAGE_DETAIL_COVERAGE_KEY,
+    SESSION_USAGE_RECONCILIATION_EPOCH_KEY,
     SESSION_USAGE_RECONCILIATION_KEY,
+    SESSION_USAGE_RECONCILIATION_LEGACY_VERSION,
     SESSION_USAGE_RECONCILIATION_METRIC_FIELDS,
     SESSION_USAGE_RECONCILIATION_ROUTE_FIELDS,
     SESSION_USAGE_RECONCILIATION_VERSION,
@@ -1199,7 +1201,9 @@ class SessionSchemaMixin:
         finally:
             cursor.execute("PRAGMA foreign_keys=ON")
 
-    def _ensure_usage_detail_activation(self, cursor) -> None:
+    def _ensure_usage_detail_activation(
+        self, cursor, *, baseline_table_preexisting: bool
+    ) -> None:
         """Atomically establish or validate the trusted accounting cutover.
 
         ``BEGIN IMMEDIATE`` is the cutover authority.  A usage writer either
@@ -1217,6 +1221,10 @@ class SessionSchemaMixin:
             trusted_row = cursor.execute(
                 "SELECT value FROM state_meta WHERE key = ?",
                 (SESSION_USAGE_RECONCILIATION_KEY,),
+            ).fetchone()
+            epoch_row = cursor.execute(
+                "SELECT value FROM state_meta WHERE key = ?",
+                (SESSION_USAGE_RECONCILIATION_EPOCH_KEY,),
             ).fetchone()
             if trusted_row is not None:
                 try:
@@ -1237,12 +1245,53 @@ class SessionSchemaMixin:
                         "invalid trusted session usage cutover state"
                     ) from exc
                 if (
-                    len(baseline_rows) != marker["baseline_row_count"]
+                    not baseline_table_preexisting
+                    or len(baseline_rows) != marker["baseline_row_count"]
                     or baseline_digest != marker["baseline_sha256"]
                 ):
                     raise RuntimeError(
                         "incomplete trusted session usage cutover baseline"
                     )
+                if (
+                    marker["version"]
+                    == SESSION_USAGE_RECONCILIATION_LEGACY_VERSION
+                ):
+                    if epoch_row is not None:
+                        raise RuntimeError(
+                            "inconsistent trusted session usage cutover epoch"
+                        )
+                    marker = {
+                        **marker,
+                        "version": SESSION_USAGE_RECONCILIATION_VERSION,
+                        "generation": uuid.uuid4().hex,
+                    }
+                    trusted_value = json.dumps(
+                        marker,
+                        allow_nan=False,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    )
+                    cursor.execute(
+                        "UPDATE state_meta SET value = ? WHERE key = ?",
+                        (trusted_value, SESSION_USAGE_RECONCILIATION_KEY),
+                    )
+                    cursor.execute(
+                        "INSERT INTO state_meta (key, value) VALUES (?, ?)",
+                        (SESSION_USAGE_RECONCILIATION_EPOCH_KEY, trusted_value),
+                    )
+                else:
+                    try:
+                        epoch = parse_session_usage_reconciliation_marker(
+                            epoch_row[0] if epoch_row is not None else None
+                        )
+                    except ValueError as exc:
+                        raise RuntimeError(
+                            "invalid trusted session usage cutover epoch"
+                        ) from exc
+                    if epoch != marker:
+                        raise RuntimeError(
+                            "inconsistent trusted session usage cutover epoch"
+                        )
                 legacy_marker = repr(marker["cutover_at"])
                 cursor.execute(
                     "INSERT OR REPLACE INTO state_meta (key, value) "
@@ -1256,6 +1305,11 @@ class SessionSchemaMixin:
                 )
                 conn.commit()
                 return
+
+            if epoch_row is not None or baseline_table_preexisting:
+                raise RuntimeError(
+                    "damaged trusted session usage cutover state"
+                )
 
             cutover_at = time.time()
             event_id_high_water = int(
@@ -1305,6 +1359,7 @@ class SessionSchemaMixin:
             trusted_marker = json.dumps(
                 {
                     "version": SESSION_USAGE_RECONCILIATION_VERSION,
+                    "generation": uuid.uuid4().hex,
                     "cutover_at": cutover_at,
                     "event_id_high_water": event_id_high_water,
                     "baseline_row_count": len(baseline_rows),
@@ -1324,13 +1379,27 @@ class SessionSchemaMixin:
                 (SESSION_USAGE_DETAIL_BASELINE_KEY, marker_value),
             )
             cursor.execute(
-                "INSERT OR REPLACE INTO state_meta (key, value) VALUES (?, ?)",
+                "INSERT INTO state_meta (key, value) VALUES (?, ?)",
                 (SESSION_USAGE_RECONCILIATION_KEY, trusted_marker),
+            )
+            cursor.execute(
+                "INSERT INTO state_meta (key, value) VALUES (?, ?)",
+                (SESSION_USAGE_RECONCILIATION_EPOCH_KEY, trusted_marker),
             )
             conn.commit()
         except BaseException:
             if conn.in_transaction:
                 conn.rollback()
+            if not baseline_table_preexisting:
+                try:
+                    conn.execute(
+                        "DROP TABLE IF EXISTS "
+                        "session_usage_reconciliation_baseline"
+                    )
+                    conn.commit()
+                except sqlite3.Error:
+                    if conn.in_transaction:
+                        conn.rollback()
             raise
 
     def _init_schema(self):
@@ -1360,6 +1429,11 @@ class SessionSchemaMixin:
         report_startup_progress(600.0, phase="state_db_init_schema")
 
         cursor = self._conn.cursor()
+
+        baseline_table_preexisting = cursor.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+            "AND name = 'session_usage_reconciliation_baseline'"
+        ).fetchone() is not None
 
         cursor.executescript(SCHEMA_SQL)
 
@@ -1401,7 +1475,10 @@ class SessionSchemaMixin:
         # Establish the trusted v2 cutover only after both detail and baseline
         # schemas are valid. BEGIN IMMEDIATE serializes the complete aggregate
         # snapshot, detail high-water, and marker commit against every writer.
-        self._ensure_usage_detail_activation(cursor)
+        self._ensure_usage_detail_activation(
+            cursor,
+            baseline_table_preexisting=baseline_table_preexisting,
+        )
 
         # Heal NULL ``active`` rows unconditionally on every startup.
         # On real-world DBs the reconciler-added ``active`` column can lack

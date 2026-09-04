@@ -366,7 +366,11 @@ SESSION_USAGE_DETAIL_BASELINE_KEY = "session.usage.detail.v1.aggregate_baseline"
 SESSION_USAGE_RECONCILIATION_KEY = (
     "session.usage.detail.reconciliation.v2.trusted_cutover"
 )
-SESSION_USAGE_RECONCILIATION_VERSION = 2
+SESSION_USAGE_RECONCILIATION_EPOCH_KEY = (
+    "session.usage.detail.reconciliation.v2.epoch"
+)
+SESSION_USAGE_RECONCILIATION_LEGACY_VERSION = 2
+SESSION_USAGE_RECONCILIATION_VERSION = 3
 SESSION_USAGE_RECONCILIATION_ROUTE_FIELDS = (
     "session_id",
     "model",
@@ -438,7 +442,10 @@ def parse_session_usage_reconciliation_marker(value) -> dict:
     event_id_high_water = marker.get("event_id_high_water")
     baseline_row_count = marker.get("baseline_row_count")
     baseline_sha256 = marker.get("baseline_sha256")
-    if version != SESSION_USAGE_RECONCILIATION_VERSION:
+    if version not in (
+        SESSION_USAGE_RECONCILIATION_LEGACY_VERSION,
+        SESSION_USAGE_RECONCILIATION_VERSION,
+    ):
         raise ValueError("unsupported trusted usage cutover marker")
     if (
         isinstance(cutover_at, bool)
@@ -463,8 +470,19 @@ def parse_session_usage_reconciliation_marker(value) -> dict:
         or any(char not in "0123456789abcdef" for char in baseline_sha256)
     ):
         raise ValueError("invalid trusted usage baseline digest")
+    generation = marker.get("generation")
+    if version == SESSION_USAGE_RECONCILIATION_VERSION:
+        if (
+            not isinstance(generation, str)
+            or len(generation) != 32
+            or any(char not in "0123456789abcdef" for char in generation)
+        ):
+            raise ValueError("invalid trusted usage cutover generation")
+    elif generation is not None:
+        raise ValueError("invalid legacy trusted usage cutover marker")
     return {
         "version": version,
+        "generation": generation,
         "cutover_at": float(cutover_at),
         "event_id_high_water": event_id_high_water,
         "baseline_row_count": baseline_row_count,
