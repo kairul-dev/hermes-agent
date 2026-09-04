@@ -35,10 +35,16 @@ from hermes_state_common import (
     SCHEMA_VERSION,
     SESSION_USAGE_DETAIL_BASELINE_KEY,
     SESSION_USAGE_DETAIL_COVERAGE_KEY,
+    SESSION_USAGE_RECONCILIATION_KEY,
+    SESSION_USAGE_RECONCILIATION_METRIC_FIELDS,
+    SESSION_USAGE_RECONCILIATION_ROUTE_FIELDS,
+    SESSION_USAGE_RECONCILIATION_VERSION,
     _FTS_CJK_TRIGGERS,
     _FTS_TRIGGERS,
     _ephemeral_child_sql,
     fts_rebuild_admission,
+    parse_session_usage_reconciliation_marker,
+    session_usage_reconciliation_baseline_digest,
 )
 
 # Moved methods logged under the "hermes_state" logger before the split;
@@ -1194,119 +1200,121 @@ class SessionSchemaMixin:
             cursor.execute("PRAGMA foreign_keys=ON")
 
     def _ensure_usage_detail_activation(self, cursor) -> None:
-        """Atomically establish the forward-only aggregate baseline."""
-        coverage_row = cursor.execute(
-            "SELECT value FROM state_meta WHERE key = ?",
-            (SESSION_USAGE_DETAIL_COVERAGE_KEY,),
-        ).fetchone()
-        baseline_row = cursor.execute(
-            "SELECT value FROM state_meta WHERE key = ?",
-            (SESSION_USAGE_DETAIL_BASELINE_KEY,),
-        ).fetchone()
-        if coverage_row is not None and baseline_row is not None:
-            try:
-                coverage_value = float(coverage_row[0])
-                baseline_value = float(baseline_row[0])
-            except (TypeError, ValueError) as exc:
-                raise RuntimeError(
-                    "invalid session usage activation metadata"
-                ) from exc
-            if (
-                not math.isfinite(coverage_value)
-                or coverage_value < 0
-                or baseline_value != coverage_value
-            ):
-                raise RuntimeError("invalid session usage activation metadata")
-            return
+        """Atomically establish or validate the trusted accounting cutover.
 
-        metric_fields = (
-            "api_call_count",
-            "input_tokens",
-            "output_tokens",
-            "cache_read_tokens",
-            "cache_write_tokens",
-            "reasoning_tokens",
-            "estimated_cost_usd",
-            "actual_cost_usd",
-        )
-        cursor.execute("SAVEPOINT usage_detail_activation")
+        ``BEGIN IMMEDIATE`` is the cutover authority.  A usage writer either
+        commits before this transaction and is wholly captured by the full
+        aggregate baseline/event high-water, or commits afterwards and lands
+        beyond both.  Existing v1 detail is never subtracted from aggregate.
+        """
+        route_fields = SESSION_USAGE_RECONCILIATION_ROUTE_FIELDS
+        metric_fields = SESSION_USAGE_RECONCILIATION_METRIC_FIELDS
+        baseline_fields = (*route_fields, *metric_fields)
+        baseline_projection = ", ".join(baseline_fields)
+        conn = cursor.connection
+        cursor.execute("BEGIN IMMEDIATE")
         try:
-            cursor.execute("DELETE FROM session_usage_activation_baseline")
-            if coverage_row is None:
-                activation = time.time()
-                detail_by_session = {}
-            else:
+            trusted_row = cursor.execute(
+                "SELECT value FROM state_meta WHERE key = ?",
+                (SESSION_USAGE_RECONCILIATION_KEY,),
+            ).fetchone()
+            if trusted_row is not None:
                 try:
-                    activation = float(coverage_row[0])
-                except (TypeError, ValueError) as exc:
-                    raise RuntimeError(
-                        "invalid session usage activation marker"
-                    ) from exc
-                if not math.isfinite(activation) or activation < 0:
-                    raise RuntimeError("invalid session usage activation marker")
-                sums = ", ".join(
-                    f"COALESCE(SUM({field}), 0) AS {field}"
-                    for field in metric_fields
-                )
-                detail_by_session = {
-                    row["session_id"]: row
-                    for row in cursor.execute(
-                        f"SELECT session_id, {sums} "
-                        "FROM session_usage_events WHERE recorded_at >= ? "
-                        "GROUP BY session_id",
-                        (activation,),
+                    marker = parse_session_usage_reconciliation_marker(
+                        trusted_row[0]
+                    )
+                    baseline_rows = cursor.execute(
+                        f"SELECT {baseline_projection} "
+                        "FROM session_usage_reconciliation_baseline"
                     ).fetchall()
-                }
+                    baseline_digest = (
+                        session_usage_reconciliation_baseline_digest(
+                            baseline_rows
+                        )
+                    )
+                except ValueError as exc:
+                    raise RuntimeError(
+                        "invalid trusted session usage cutover state"
+                    ) from exc
+                if (
+                    len(baseline_rows) != marker["baseline_row_count"]
+                    or baseline_digest != marker["baseline_sha256"]
+                ):
+                    raise RuntimeError(
+                        "incomplete trusted session usage cutover baseline"
+                    )
+                legacy_marker = repr(marker["cutover_at"])
+                cursor.execute(
+                    "INSERT OR REPLACE INTO state_meta (key, value) "
+                    "VALUES (?, ?)",
+                    (SESSION_USAGE_DETAIL_COVERAGE_KEY, legacy_marker),
+                )
+                cursor.execute(
+                    "INSERT OR REPLACE INTO state_meta (key, value) "
+                    "VALUES (?, ?)",
+                    (SESSION_USAGE_DETAIL_BASELINE_KEY, legacy_marker),
+                )
+                conn.commit()
+                return
 
+            cutover_at = time.time()
+            event_id_high_water = int(
+                cursor.execute(
+                    "SELECT COALESCE(MAX(id), 0) FROM session_usage_events"
+                ).fetchone()[0]
+                or 0
+            )
+            cursor.execute(
+                "DELETE FROM session_usage_reconciliation_baseline"
+            )
+            cursor.execute(
+                "INSERT INTO session_usage_reconciliation_baseline "
+                f"({baseline_projection}) SELECT {baseline_projection} "
+                "FROM session_model_usage"
+            )
+            baseline_rows = cursor.execute(
+                f"SELECT {baseline_projection} "
+                "FROM session_usage_reconciliation_baseline"
+            ).fetchall()
+            try:
+                baseline_digest = (
+                    session_usage_reconciliation_baseline_digest(
+                        baseline_rows
+                    )
+                )
+            except ValueError as exc:
+                raise RuntimeError(
+                    "invalid aggregate state at trusted usage cutover"
+                ) from exc
+
+            # Preserve the v1 metadata/table for compatibility, but reset it
+            # to the same full aggregate snapshot.  It is no longer a source
+            # of reconciliation truth and no detail is subtracted from it.
             sums = ", ".join(
                 f"COALESCE(SUM({field}), 0) AS {field}"
                 for field in metric_fields
             )
-            aggregate_by_session = {
-                row["session_id"]: row
-                for row in cursor.execute(
-                    f"SELECT session_id, {sums} FROM session_model_usage "
-                    "GROUP BY session_id"
-                ).fetchall()
-            }
-            session_ids = set(aggregate_by_session) | set(detail_by_session)
-            insert_sql = (
+            cursor.execute("DELETE FROM session_usage_activation_baseline")
+            cursor.execute(
                 "INSERT INTO session_usage_activation_baseline "
-                f"(session_id, {', '.join(metric_fields)}) VALUES "
-                f"({', '.join('?' for _ in range(len(metric_fields) + 1))})"
+                f"(session_id, {', '.join(metric_fields)}) "
+                f"SELECT session_id, {sums} FROM session_model_usage "
+                "GROUP BY session_id"
             )
-            for session_id in session_ids:
-                aggregate = aggregate_by_session.get(session_id)
-                detail = detail_by_session.get(session_id)
-                baseline = []
-                for field in metric_fields:
-                    if not field.endswith("_usd"):
-                        value = (aggregate[field] if aggregate else 0) or 0
-                        if coverage_row is not None:
-                            value -= (detail[field] if detail else 0) or 0
-                        if isinstance(value, float) and not value.is_integer():
-                            raise RuntimeError(
-                                "inconsistent session usage activation baseline"
-                            )
-                        value = int(value)
-                        if value < 0:
-                            raise RuntimeError(
-                                "inconsistent session usage activation baseline"
-                            )
-                    else:
-                        value = float(
-                            (aggregate[field] if aggregate else 0) or 0
-                        )
-                        if coverage_row is not None:
-                            value -= float((detail[field] if detail else 0) or 0)
-                        if not math.isfinite(value):
-                            raise RuntimeError(
-                                "non-finite session usage activation baseline"
-                            )
-                    baseline.append(value)
-                cursor.execute(insert_sql, (session_id, *baseline))
 
-            marker_value = repr(activation)
+            trusted_marker = json.dumps(
+                {
+                    "version": SESSION_USAGE_RECONCILIATION_VERSION,
+                    "cutover_at": cutover_at,
+                    "event_id_high_water": event_id_high_water,
+                    "baseline_row_count": len(baseline_rows),
+                    "baseline_sha256": baseline_digest,
+                },
+                allow_nan=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            marker_value = repr(cutover_at)
             cursor.execute(
                 "INSERT OR REPLACE INTO state_meta (key, value) VALUES (?, ?)",
                 (SESSION_USAGE_DETAIL_COVERAGE_KEY, marker_value),
@@ -1315,10 +1323,14 @@ class SessionSchemaMixin:
                 "INSERT OR REPLACE INTO state_meta (key, value) VALUES (?, ?)",
                 (SESSION_USAGE_DETAIL_BASELINE_KEY, marker_value),
             )
-            cursor.execute("RELEASE SAVEPOINT usage_detail_activation")
+            cursor.execute(
+                "INSERT OR REPLACE INTO state_meta (key, value) VALUES (?, ?)",
+                (SESSION_USAGE_RECONCILIATION_KEY, trusted_marker),
+            )
+            conn.commit()
         except BaseException:
-            cursor.execute("ROLLBACK TO SAVEPOINT usage_detail_activation")
-            cursor.execute("RELEASE SAVEPOINT usage_detail_activation")
+            if conn.in_transaction:
+                conn.rollback()
             raise
 
     def _init_schema(self):
@@ -1386,11 +1398,9 @@ class SessionSchemaMixin:
         # column (idx_messages_session_active) — same ordering constraint.
         cursor.executescript(DEFERRED_INDEX_SQL)
 
-        # Capture the aggregate watermark only after the detail and baseline
-        # tables have been reconciled and their dependent index is valid.
-        # Missing-marker repair resets activation at the current aggregate;
-        # upgrading the reviewed Stage 4A schema derives the historical
-        # baseline as aggregate minus already-recorded post-marker detail.
+        # Establish the trusted v2 cutover only after both detail and baseline
+        # schemas are valid. BEGIN IMMEDIATE serializes the complete aggregate
+        # snapshot, detail high-water, and marker commit against every writer.
         self._ensure_usage_detail_activation(cursor)
 
         # Heal NULL ``active`` rows unconditionally on every startup.

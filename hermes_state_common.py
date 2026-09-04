@@ -8,8 +8,10 @@ hermes_state re-imports every name here for backward compatibility.
 
 import contextlib
 import errno
+import hashlib
 import json
 import logging
+import math
 import os
 import sys
 import time
@@ -361,6 +363,113 @@ SCHEMA_VERSION = 30
 # this boundary to avoid presenting pre-ledger aggregate history as exact.
 SESSION_USAGE_DETAIL_COVERAGE_KEY = "session.usage.detail.v1.coverage_started_at"
 SESSION_USAGE_DETAIL_BASELINE_KEY = "session.usage.detail.v1.aggregate_baseline"
+SESSION_USAGE_RECONCILIATION_KEY = (
+    "session.usage.detail.reconciliation.v2.trusted_cutover"
+)
+SESSION_USAGE_RECONCILIATION_VERSION = 2
+SESSION_USAGE_RECONCILIATION_ROUTE_FIELDS = (
+    "session_id",
+    "model",
+    "billing_provider",
+    "billing_base_url",
+    "billing_mode",
+    "task",
+)
+SESSION_USAGE_RECONCILIATION_METRIC_FIELDS = (
+    "api_call_count",
+    "input_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
+    "reasoning_tokens",
+    "estimated_cost_usd",
+    "actual_cost_usd",
+)
+
+
+def session_usage_reconciliation_baseline_digest(rows) -> str:
+    """Return a stable digest for a complete trusted route baseline."""
+    canonical = []
+    count_fields = SESSION_USAGE_RECONCILIATION_METRIC_FIELDS[:6]
+    cost_fields = SESSION_USAGE_RECONCILIATION_METRIC_FIELDS[6:]
+    for row in rows:
+        route = []
+        for field in SESSION_USAGE_RECONCILIATION_ROUTE_FIELDS:
+            value = row[field]
+            if value is None:
+                raise ValueError(f"trusted usage baseline has null {field}")
+            route.append(str(value))
+        counts = []
+        for field in count_fields:
+            value = row[field]
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"trusted usage baseline has invalid {field}")
+            counts.append(int(value))
+        costs = []
+        for field in cost_fields:
+            value = row[field]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"trusted usage baseline has invalid {field}")
+            value = float(value)
+            if not math.isfinite(value):
+                raise ValueError(f"trusted usage baseline has invalid {field}")
+            costs.append(value)
+        canonical.append([*route, *counts, *costs])
+    canonical.sort(key=lambda values: tuple(values[:6]))
+    payload = json.dumps(
+        canonical,
+        ensure_ascii=True,
+        allow_nan=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def parse_session_usage_reconciliation_marker(value) -> dict:
+    """Parse and validate the integrity-bound trusted-cutover marker."""
+    try:
+        marker = json.loads(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid trusted usage cutover marker") from exc
+    if not isinstance(marker, dict):
+        raise ValueError("invalid trusted usage cutover marker")
+    version = marker.get("version")
+    cutover_at = marker.get("cutover_at")
+    event_id_high_water = marker.get("event_id_high_water")
+    baseline_row_count = marker.get("baseline_row_count")
+    baseline_sha256 = marker.get("baseline_sha256")
+    if version != SESSION_USAGE_RECONCILIATION_VERSION:
+        raise ValueError("unsupported trusted usage cutover marker")
+    if (
+        isinstance(cutover_at, bool)
+        or not isinstance(cutover_at, (int, float))
+        or not math.isfinite(float(cutover_at))
+        or float(cutover_at) < 0
+    ):
+        raise ValueError("invalid trusted usage cutover timestamp")
+    for name, candidate in (
+        ("event_id_high_water", event_id_high_water),
+        ("baseline_row_count", baseline_row_count),
+    ):
+        if (
+            isinstance(candidate, bool)
+            or not isinstance(candidate, int)
+            or candidate < 0
+        ):
+            raise ValueError(f"invalid trusted usage cutover {name}")
+    if (
+        not isinstance(baseline_sha256, str)
+        or len(baseline_sha256) != 64
+        or any(char not in "0123456789abcdef" for char in baseline_sha256)
+    ):
+        raise ValueError("invalid trusted usage baseline digest")
+    return {
+        "version": version,
+        "cutover_at": float(cutover_at),
+        "event_id_high_water": event_id_high_water,
+        "baseline_row_count": baseline_row_count,
+        "baseline_sha256": baseline_sha256,
+    }
 
 
 # FTS storage-layout version, tracked INDEPENDENTLY of SCHEMA_VERSION in the
@@ -584,6 +693,37 @@ CREATE TABLE IF NOT EXISTS session_usage_activation_baseline (
     estimated_cost_usd REAL NOT NULL DEFAULT 0,
     actual_cost_usd REAL NOT NULL DEFAULT 0
 );
+
+-- Immutable route-level aggregate snapshot captured at the trusted v2
+-- cutover.  The state_meta marker binds the complete row set by count and
+-- SHA-256 digest.  Existing v1 detail rows remain stored but are excluded by
+-- the marker's event-id high-water boundary.
+CREATE TABLE IF NOT EXISTS session_usage_reconciliation_baseline (
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    model TEXT NOT NULL DEFAULT '',
+    billing_provider TEXT NOT NULL DEFAULT '',
+    billing_base_url TEXT NOT NULL DEFAULT '',
+    billing_mode TEXT NOT NULL DEFAULT '',
+    task TEXT NOT NULL DEFAULT '',
+    api_call_count INTEGER NOT NULL DEFAULT 0 CHECK (api_call_count >= 0),
+    input_tokens INTEGER NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
+    output_tokens INTEGER NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
+    cache_read_tokens INTEGER NOT NULL DEFAULT 0 CHECK (cache_read_tokens >= 0),
+    cache_write_tokens INTEGER NOT NULL DEFAULT 0 CHECK (cache_write_tokens >= 0),
+    reasoning_tokens INTEGER NOT NULL DEFAULT 0 CHECK (reasoning_tokens >= 0),
+    estimated_cost_usd REAL NOT NULL DEFAULT 0 CHECK (
+        estimated_cost_usd BETWEEN -1.7976931348623157e308
+            AND 1.7976931348623157e308
+    ),
+    actual_cost_usd REAL NOT NULL DEFAULT 0 CHECK (
+        actual_cost_usd BETWEEN -1.7976931348623157e308
+            AND 1.7976931348623157e308
+    ),
+    PRIMARY KEY (
+        session_id, model, billing_provider, billing_base_url,
+        billing_mode, task
+    )
+ );
 
 CREATE TABLE IF NOT EXISTS state_meta (
     key TEXT PRIMARY KEY,

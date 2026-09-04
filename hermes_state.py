@@ -95,6 +95,9 @@ from hermes_state_common import (  # noqa: F401  (re-exported for back-compat)
     SCHEMA_VERSION,
     SESSION_USAGE_DETAIL_BASELINE_KEY,
     SESSION_USAGE_DETAIL_COVERAGE_KEY,
+    SESSION_USAGE_RECONCILIATION_KEY,
+    SESSION_USAGE_RECONCILIATION_METRIC_FIELDS,
+    SESSION_USAGE_RECONCILIATION_ROUTE_FIELDS,
     _PREVIEW_CONTENT_SQL,
     _PREVIEW_HEAD_CHARS,
     _PREVIEW_MAX_CHARS,
@@ -105,6 +108,8 @@ from hermes_state_common import (  # noqa: F401  (re-exported for back-compat)
     _describe_lock_holder,
     _read_lock_holder_record,
     is_advisory_lock_contention,
+    parse_session_usage_reconciliation_marker,
+    session_usage_reconciliation_baseline_digest,
 )
 from hermes_state_portability import SessionPortabilityMixin
 from hermes_state_schema import SessionSchemaMixin
@@ -10956,9 +10961,8 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
             "estimated_cost_usd", "actual_cost_usd",
         }
         baseline_columns = {
-            "session_id", "api_call_count", "input_tokens", "output_tokens",
-            "cache_read_tokens", "cache_write_tokens", "reasoning_tokens",
-            "estimated_cost_usd", "actual_cost_usd",
+            *SESSION_USAGE_RECONCILIATION_ROUTE_FIELDS,
+            *SESSION_USAGE_RECONCILIATION_METRIC_FIELDS,
         }
         with self._read_ctx() as conn:
             table = conn.execute(
@@ -10981,7 +10985,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                 )
             baseline_table = conn.execute(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' "
-                "AND name = 'session_usage_activation_baseline'"
+                "AND name = 'session_usage_reconciliation_baseline'"
             ).fetchone()
             if baseline_table is None:
                 return _unavailable(
@@ -10990,47 +10994,56 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
             baseline_shape = {
                 str(row[1])
                 for row in conn.execute(
-                    'PRAGMA table_info("session_usage_activation_baseline")'
+                    'PRAGMA table_info("session_usage_reconciliation_baseline")'
                 ).fetchall()
             }
             if not baseline_columns.issubset(baseline_shape):
                 return _unavailable(
                     "activation_baseline_incompatible", ids=session_ids
                 )
-            marker = conn.execute(
+            trusted_marker = conn.execute(
                 "SELECT value FROM state_meta WHERE key = ?",
-                (SESSION_USAGE_DETAIL_COVERAGE_KEY,),
+                (SESSION_USAGE_RECONCILIATION_KEY,),
             ).fetchone()
-            baseline_marker = conn.execute(
-                "SELECT value FROM state_meta WHERE key = ?",
-                (SESSION_USAGE_DETAIL_BASELINE_KEY,),
-            ).fetchone()
+            baseline_projection = ", ".join(
+                (*SESSION_USAGE_RECONCILIATION_ROUTE_FIELDS,
+                 *SESSION_USAGE_RECONCILIATION_METRIC_FIELDS)
+            )
+            baseline_manifest_rows = conn.execute(
+                f"SELECT {baseline_projection} "
+                "FROM session_usage_reconciliation_baseline"
+            ).fetchall()
             started_row = conn.execute(
                 f"SELECT MIN(started_at) FROM sessions "
                 f"WHERE id IN ({placeholders})",
                 session_ids,
             ).fetchone()
 
-        if marker is None or baseline_marker is None:
+        if trusted_marker is None:
             return _unavailable(
                 "coverage_start_unknown", ids=session_ids
             )
         try:
-            detail_started_at = float(marker[0])
-            baseline_started_at = float(baseline_marker[0])
-        except (TypeError, ValueError):
+            reconciliation = parse_session_usage_reconciliation_marker(
+                trusted_marker[0]
+            )
+            baseline_digest = session_usage_reconciliation_baseline_digest(
+                baseline_manifest_rows
+            )
+        except ValueError:
             return _unavailable(
                 "coverage_start_invalid", ids=session_ids
             )
         if (
-            not math.isfinite(detail_started_at)
-            or detail_started_at < 0
-            or not math.isfinite(baseline_started_at)
-            or baseline_started_at != detail_started_at
+            len(baseline_manifest_rows)
+            != reconciliation["baseline_row_count"]
+            or baseline_digest != reconciliation["baseline_sha256"]
         ):
             return _unavailable(
-                "coverage_start_invalid", ids=session_ids
+                "trusted_cutover_baseline_incomplete", ids=session_ids
             )
+        detail_started_at = reconciliation["cutover_at"]
+        event_id_high_water = reconciliation["event_id_high_water"]
 
         session_started_at = float(started_row[0] or session.get("started_at") or 0)
         requested_start = start if start is not None else session_started_at
@@ -11049,21 +11062,18 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
             )
         exact_start = max(requested_start, detail_started_at)
 
-        metric_fields = (
-            "api_call_count",
-            "input_tokens",
-            "output_tokens",
-            "cache_read_tokens",
-            "cache_write_tokens",
-            "reasoning_tokens",
-            "estimated_cost_usd",
-            "actual_cost_usd",
-        )
+        route_fields = SESSION_USAGE_RECONCILIATION_ROUTE_FIELDS
+        metric_fields = SESSION_USAGE_RECONCILIATION_METRIC_FIELDS
         where = (
             f"session_id IN ({placeholders}) "
-            "AND recorded_at >= ? AND recorded_at < ?"
+            "AND id > ? AND recorded_at >= ? AND recorded_at < ?"
         )
-        params: List[Any] = [*session_ids, exact_start, effective_end]
+        params: List[Any] = [
+            *session_ids,
+            event_id_high_water,
+            exact_start,
+            effective_end,
+        ]
         sums = ", ".join(
             f"COALESCE(SUM({field}), 0) AS {field}"
             for field in metric_fields
@@ -11082,12 +11092,12 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         with self._read_ctx() as conn:
             invalid_detail = conn.execute(
                 f"SELECT 1 FROM session_usage_events "
-                f"WHERE session_id IN ({placeholders}) AND ("
+                f"WHERE session_id IN ({placeholders}) AND id > ? AND ("
                 f"{invalid_counts} OR {invalid_costs} OR "
                 "typeof(recorded_at) NOT IN ('integer', 'real') OR "
                 "recorded_at < 0 OR recorded_at > 1.7976931348623157e308) "
                 "LIMIT 1",
-                session_ids,
+                [*session_ids, event_id_high_water],
             ).fetchone()
             invalid_aggregate = conn.execute(
                 f"SELECT 1 FROM session_model_usage "
@@ -11096,7 +11106,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                 session_ids,
             ).fetchone()
             invalid_baseline = conn.execute(
-                f"SELECT 1 FROM session_usage_activation_baseline "
+                f"SELECT 1 FROM session_usage_reconciliation_baseline "
                 f"WHERE session_id IN ({placeholders}) "
                 f"AND ({invalid_counts} OR {invalid_costs}) LIMIT 1",
                 session_ids,
@@ -11134,49 +11144,78 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                      LIMIT ?""",
                 [*params, route_limit + 1],
             ).fetchall()
-            aggregate_row = conn.execute(
-                f"SELECT {sums} FROM session_model_usage "
+            route_projection = ", ".join(route_fields)
+            metric_projection = ", ".join(metric_fields)
+            aggregate_rows = conn.execute(
+                f"SELECT {route_projection}, {metric_projection} "
+                "FROM session_model_usage "
                 f"WHERE session_id IN ({placeholders})",
                 session_ids,
-            ).fetchone()
-            baseline_row = conn.execute(
-                f"SELECT {sums} FROM session_usage_activation_baseline "
+            ).fetchall()
+            baseline_rows = conn.execute(
+                f"SELECT {route_projection}, {metric_projection} "
+                "FROM session_usage_reconciliation_baseline "
                 f"WHERE session_id IN ({placeholders})",
                 session_ids,
-            ).fetchone()
-            post_activation_detail_row = conn.execute(
-                f"SELECT {sums} FROM session_usage_events "
-                f"WHERE session_id IN ({placeholders}) AND recorded_at >= ?",
-                [*session_ids, detail_started_at],
-            ).fetchone()
+            ).fetchall()
+            post_cutover_detail_rows = conn.execute(
+                f"SELECT {route_projection}, {sums} "
+                "FROM session_usage_events "
+                f"WHERE session_id IN ({placeholders}) AND id > ? "
+                f"GROUP BY {route_projection}",
+                [*session_ids, event_id_high_water],
+            ).fetchall()
 
         totals = dict(total_row)
         events_truncated = len(event_rows) > route_limit
         events = [dict(row) for row in event_rows[:route_limit]]
         routes_truncated = len(route_rows) > route_limit
         routes = [dict(row) for row in route_rows[:route_limit]]
-        aggregate = dict(aggregate_row)
-        baseline = dict(baseline_row)
-        post_activation_detail = dict(post_activation_detail_row)
+        def _by_route(rows):
+            return {
+                tuple(row[field] for field in route_fields): row
+                for row in rows
+            }
 
+        aggregate_by_route = _by_route(aggregate_rows)
+        baseline_by_route = _by_route(baseline_rows)
+        detail_by_route = _by_route(post_cutover_detail_rows)
+        reconciliation_routes = (
+            set(aggregate_by_route)
+            | set(baseline_by_route)
+            | set(detail_by_route)
+        )
         mismatch = False
-        for field in metric_fields:
-            left = (aggregate.get(field) or 0) - (baseline.get(field) or 0)
-            right = post_activation_detail.get(field) or 0
-            if field.endswith("_usd"):
-                if not math.isclose(float(left), float(right), rel_tol=1e-9, abs_tol=1e-12):
+        for route in reconciliation_routes:
+            aggregate = aggregate_by_route.get(route)
+            baseline = baseline_by_route.get(route)
+            detail = detail_by_route.get(route)
+            for field in metric_fields:
+                left = (
+                    ((aggregate[field] if aggregate else 0) or 0)
+                    - ((baseline[field] if baseline else 0) or 0)
+                )
+                right = (detail[field] if detail else 0) or 0
+                if field.endswith("_usd"):
+                    matches = math.isclose(
+                        float(left),
+                        float(right),
+                        rel_tol=1e-9,
+                        abs_tol=1e-12,
+                    )
+                else:
+                    matches = int(left) == int(right)
+                if not matches:
                     mismatch = True
                     break
-            elif int(left) != int(right):
-                mismatch = True
+            if mismatch:
                 break
 
         has_exact_usage = any((totals.get(field) or 0) != 0 for field in metric_fields)
-        aggregate_has_usage = any(
-            (aggregate.get(field) or 0) != 0 for field in metric_fields
-        )
         historical_aggregate_available = any(
-            (baseline.get(field) or 0) != 0 for field in metric_fields
+            (row[field] or 0) != 0
+            for row in baseline_rows
+            for field in metric_fields
         )
         status = "COMPLETE"
         reason = "exact_detail_available" if has_exact_usage else "exact_detail_available_no_usage"
