@@ -1791,6 +1791,11 @@ def init_agent(
     # background skill/memory review fork so its harness turn can't leak into
     # the user's real session and hijack the next live turn. Default False.
     agent._persist_disabled = False
+    # Normal durable frontends (the TUI/Forge gateway) set this explicitly
+    # after construction. Direct helper/test agents remain best-effort unless
+    # their caller opts in; _persist_disabled remains the hard opt-out for
+    # intentionally isolated background/test contexts.
+    agent._persistence_required = False
     agent._session_init_model_config = {
         "max_iterations": agent.max_iterations,
         "reasoning_config": reasoning_config,

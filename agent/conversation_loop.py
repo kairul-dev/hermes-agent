@@ -52,6 +52,7 @@ from agent.turn_context import (
     reanchor_current_turn_user_idx,
 )
 from agent.turn_retry_state import TurnRetryState
+from agent.persistence import SessionPersistenceError
 from agent.runtime_cwd import resolve_agent_cwd
 from agent.message_sanitization import (
     close_interrupted_tool_sequence,
@@ -2130,6 +2131,28 @@ def run_conversation(
             # user message, so no byte-stable api_content sidecar can be stamped.
             moa_active=bool(moa_config),
         )
+    except SessionPersistenceError as _persistence_exc:
+        # A required durable session/initial user write is a hard pre-model
+        # gate. Clear the in-flight marker and return a typed result so the
+        # gateway surfaces the sanitized persistence error to the browser.
+        from agent.agent_runtime_helpers import note_turn_persisted
+
+        note_turn_persisted(agent)
+        logger.warning(
+            "Turn-start persistence gate rejected session: %s",
+            _persistence_exc.diagnostic(),
+        )
+        return {
+            "final_response": "",
+            "messages": list(conversation_history or []),
+            "completed": False,
+            "api_calls": 0,
+            "error": _persistence_exc.user_message,
+            "failure_reason": "session_persistence_failed",
+            "partial": True,
+            "failed": True,
+            "turn_exit_reason": "session_persistence_failed",
+        }
     except PreflightCompressionTimedOut as _preflight_timeout_exc:
         # Turn-start fail-closed boundary (#98424): preflight compression hit
         # the host's progress-aware timeout while the request was still
@@ -2191,6 +2214,10 @@ def run_conversation(
     # A configured SessionDB append failure halts only the affected turn. A
     # cached gateway agent must recover on the next message if storage did.
     agent._incremental_persistence_failed = False
+    persistence_required = bool(
+        getattr(agent, "_persistence_required", False)
+        and not getattr(agent, "_persist_disabled", False)
+    )
     # Cause of the most recent persistence failure this turn ('locked',
     # 'disk', or 'unknown' — see hermes_state.classify_persistence_error).
     # Reset alongside the failure flag so a lock-contention diagnosis from a
@@ -8112,18 +8139,27 @@ def run_conversation(
                     )
                 except Exception as exc:
                     _tool_turn_persisted = False
-                    from hermes_state import classify_persistence_error
-                    agent._last_persistence_error_cause = (
-                        classify_persistence_error(exc)
+                    from agent.persistence import persistence_error_from_exception
+
+                    error = persistence_error_from_exception(
+                        operation="transcript flush",
+                        stage="before tool execution",
+                        session_id=getattr(agent, "session_id", None),
+                        exc=exc,
                     )
+                    if hasattr(agent, "_remember_persistence_error"):
+                        agent._remember_persistence_error(error)
+                    else:
+                        agent._last_persistence_error_cause = error.kind
                     logger.warning(
-                        "Incremental tool-call persistence failed before execution "
-                        "(session=%s): %s",
-                        agent.session_id or "none",
-                        exc,
+                        "Incremental tool-call persistence failed before "
+                        "execution: %s",
+                        error.diagnostic(),
                     )
 
-                if _tool_turn_persisted is False:
+                if _tool_turn_persisted is False or (
+                    persistence_required and _tool_turn_persisted is not True
+                ):
                     # The canonical append failed. Do not project the row or
                     # run side-effecting tools from state that exists only in
                     # this process. Breaking also avoids retrying the same
@@ -8979,10 +9015,32 @@ def run_conversation(
                     # from the durable transcript (#65919 §7).
                     agent._emit_interim_assistant_message(final_msg)
                     append_message(messages, final_msg)
+                    _verify_flush_ok = False
                     try:
-                        agent._flush_messages_to_session_db(messages, conversation_history)
-                    except Exception:
-                        logger.debug("verify-on-stop interim flush failed", exc_info=True)
+                        _verify_flush_ok = agent._flush_messages_to_session_db(
+                            messages, conversation_history
+                        )
+                    except Exception as exc:
+                        from agent.persistence import persistence_error_from_exception
+
+                        error = persistence_error_from_exception(
+                            operation="transcript flush",
+                            stage="verification continuation",
+                            session_id=getattr(agent, "session_id", None),
+                            exc=exc,
+                        )
+                        if hasattr(agent, "_remember_persistence_error"):
+                            agent._remember_persistence_error(error)
+                        logger.warning(
+                            "Verification continuation flush failed: %s",
+                            error.diagnostic(),
+                        )
+                    if persistence_required and _verify_flush_ok is not True:
+                        agent._incremental_persistence_failed = True
+                        _turn_exit_reason = "session_persistence_failed"
+                        final_response = ""
+                        failed = True
+                        break
                     append_message(messages, {
                         "role": "user",
                         "content": _verify_nudge,
@@ -9051,10 +9109,32 @@ def run_conversation(
                     # from the durable transcript (#65919 §7).
                     agent._emit_interim_assistant_message(final_msg)
                     append_message(messages, final_msg)
+                    _pre_verify_flush_ok = False
                     try:
-                        agent._flush_messages_to_session_db(messages, conversation_history)
-                    except Exception:
-                        logger.debug("pre_verify interim flush failed", exc_info=True)
+                        _pre_verify_flush_ok = agent._flush_messages_to_session_db(
+                            messages, conversation_history
+                        )
+                    except Exception as exc:
+                        from agent.persistence import persistence_error_from_exception
+
+                        error = persistence_error_from_exception(
+                            operation="transcript flush",
+                            stage="pre-verification continuation",
+                            session_id=getattr(agent, "session_id", None),
+                            exc=exc,
+                        )
+                        if hasattr(agent, "_remember_persistence_error"):
+                            agent._remember_persistence_error(error)
+                        logger.warning(
+                            "Pre-verification continuation flush failed: %s",
+                            error.diagnostic(),
+                        )
+                    if persistence_required and _pre_verify_flush_ok is not True:
+                        agent._incremental_persistence_failed = True
+                        _turn_exit_reason = "session_persistence_failed"
+                        final_response = ""
+                        failed = True
+                        break
                     append_message(messages, {
                         "role": "user",
                         "content": _verify_nudge2,
@@ -9126,18 +9206,36 @@ def run_conversation(
                 # otherwise loses a reply the user already saw (#81641). Same
                 # contract as the tool-call exit (#49045) and the verify exits
                 # above; _DB_PERSISTED_MARKER keeps _persist_session idempotent.
-                # Unlike the tool-call exit, failure must NOT abort the turn:
-                # no side effect follows and _persist_session retries the write.
-                # Full incident narrative: tests/run_agent/test_81641_*.py.
+                # A required write failure is still a failed turn. There is no
+                # claim that a provider/tool side effect can be rolled back;
+                # the response is withheld from the success path and the
+                # existing finalizer may retry the unsaved prefix.
+                _final_flush_ok = False
                 try:
-                    agent._flush_messages_to_session_db(messages, conversation_history)
-                except Exception:
-                    logger.warning(
-                        "final text-turn flush failed (session=%s) — reply is "
-                        "not yet durable; relying on finalize_turn retry",
-                        getattr(agent, "session_id", None) or "none",
-                        exc_info=True,
+                    _final_flush_ok = agent._flush_messages_to_session_db(
+                        messages, conversation_history
                     )
+                except Exception as exc:
+                    from agent.persistence import persistence_error_from_exception
+
+                    error = persistence_error_from_exception(
+                        operation="transcript flush",
+                        stage="final response",
+                        session_id=getattr(agent, "session_id", None),
+                        exc=exc,
+                    )
+                    if hasattr(agent, "_remember_persistence_error"):
+                        agent._remember_persistence_error(error)
+                    logger.warning(
+                        "Final response flush failed: %s", error.diagnostic()
+                    )
+
+                if persistence_required and _final_flush_ok is not True:
+                    agent._incremental_persistence_failed = True
+                    _turn_exit_reason = "session_persistence_failed"
+                    final_response = ""
+                    failed = True
+                    break
 
                 _turn_exit_reason = f"text_response(finish_reason={finish_reason})"
                 if not agent.quiet_mode:

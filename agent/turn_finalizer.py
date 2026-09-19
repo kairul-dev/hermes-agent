@@ -293,6 +293,11 @@ def finalize_turn(
     # are surfaced on the result dict via ``cleanup_errors`` rather than
     # killing the turn.
     _cleanup_errors = []
+    persistence_failure_error = None
+    persistence_required = bool(
+        getattr(agent, "_persistence_required", False)
+        and not getattr(agent, "_persist_disabled", False)
+    )
 
     # Save trajectory if enabled.  ``user_message`` may be a multimodal
     # list of parts; the trajectory format wants a plain string.
@@ -470,10 +475,51 @@ def finalize_turn(
             except Exception as _mc_err:
                 logger.info("Micro-compaction failed: %s", _mc_err)
 
-        agent._persist_session(messages, conversation_history)
+        if persistence_required:
+            agent._persist_session(
+                messages,
+                conversation_history,
+                require_persistence=True,
+            )
+        else:
+            agent._persist_session(messages, conversation_history)
     except Exception as _persist_err:
-        _cleanup_errors.append(f"persist_session: {_persist_err}")
-        logger.error("finalize_turn: _persist_session failed: %s", _persist_err, exc_info=True)
+        if persistence_required:
+            from agent.persistence import (
+                SessionPersistenceError,
+                persistence_error_from_exception,
+            )
+
+            persistence_failure_error = (
+                _persist_err
+                if isinstance(_persist_err, SessionPersistenceError)
+                else persistence_error_from_exception(
+                    operation="session finalization",
+                    stage="transcript flush",
+                    session_id=getattr(agent, "session_id", None),
+                    exc=_persist_err,
+                )
+            )
+            if hasattr(agent, "_remember_persistence_error"):
+                agent._remember_persistence_error(persistence_failure_error)
+            _cleanup_errors.append(
+                f"persist_session: {persistence_failure_error.user_message}"
+            )
+            failed = True
+            completed = False
+            final_response = None
+            _turn_exit_reason = "session_persistence_failed"
+            logger.warning(
+                "finalize_turn persistence failed: %s",
+                persistence_failure_error.diagnostic(),
+            )
+        else:
+            _cleanup_errors.append(f"persist_session: {_persist_err}")
+            logger.error(
+                "finalize_turn: _persist_session failed: %s",
+                _persist_err,
+                exc_info=True,
+            )
 
     # The gateway owns a separate in-memory history snapshot. Keep it current
     # even when finalization reports a cleanup error: a later prompt must not be
@@ -756,9 +802,14 @@ def finalize_turn(
     # final_response; also stamp `error` so gateway surfaces status="error"
     # (and desktop can toast the cause) instead of a quiet complete frame.
     if failed and str(_turn_exit_reason) == "session_persistence_failed":
-        result["error"] = final_response or (
-            "session storage could not be written — check the state database "
-            "health (`hermes doctor`), then send your message again"
+        result["error"] = (
+            persistence_failure_error.user_message
+            if persistence_failure_error is not None
+            else final_response
+            or (
+                "session storage could not be written — check the state database "
+                "health (`hermes doctor`), then send your message again"
+            )
         )
         # Machine-readable cause for the gateway/desktop: exactly
         # 'session_persistence_failed:<locked|compression|turn_lease|corrupt|replaced|disk|unknown>'.

@@ -713,12 +713,80 @@ class AIAgent:
             logger.debug("SessionDB unavailable for recall", exc_info=True)
             return None
 
-    def _ensure_db_session(self) -> None:
-        """Create session DB row on first use. Disables _session_db on failure."""
+    def _ensure_db_session(self, *, required: bool = False) -> bool:
+        """Create and verify the durable session row before required work."""
         if getattr(self, "_persist_disabled", False):
-            return
-        if self._session_db_created or not self._session_db:
-            return
+            return True
+        from agent.persistence import (
+            SessionPersistenceError,
+            persistence_error,
+            persistence_error_from_exception,
+        )
+        if not getattr(self, "session_id", None):
+            error = persistence_error(
+                operation="session row",
+                stage="validate",
+                session_id=None,
+                kind="missing_key",
+            )
+            self._remember_persistence_error(error)
+            if required:
+                raise error
+            return False
+        if self._session_db_created:
+            if not required:
+                return True
+            if self._session_db is None:
+                error = persistence_error(
+                    operation="session row",
+                    stage="verify",
+                    session_id=self.session_id,
+                    kind="unavailable",
+                )
+                self._remember_persistence_error(error)
+                raise error
+            getter = getattr(self._session_db, "get_session", None)
+            if not callable(getter):
+                error = persistence_error(
+                    operation="session row",
+                    stage="verify",
+                    session_id=self.session_id,
+                    kind="no_op",
+                )
+                self._remember_persistence_error(error)
+                raise error
+            try:
+                row = getter(self.session_id)
+            except Exception as exc:
+                error = persistence_error_from_exception(
+                    operation="session row",
+                    stage="verify",
+                    session_id=self.session_id,
+                    exc=exc,
+                )
+                self._remember_persistence_error(error)
+                raise error from exc
+            if not isinstance(row, dict) or row.get("id") != self.session_id:
+                error = persistence_error(
+                    operation="session row",
+                    stage="verify",
+                    session_id=self.session_id,
+                    kind="no_op",
+                )
+                self._remember_persistence_error(error)
+                raise error
+            return True
+        if self._session_db is None:
+            error = persistence_error(
+                operation="session row",
+                stage="open",
+                session_id=self.session_id,
+                kind="unavailable",
+            )
+            self._remember_persistence_error(error)
+            if required:
+                raise error
+            return False
         source = _session_source_for_agent(self.platform)
         try:
             try:
@@ -778,13 +846,48 @@ class AIAgent:
                 cwd=_launch_cwd_for_session(source),
                 profile_name=_profile_for_session,
             )
+            if required:
+                getter = getattr(self._session_db, "get_session", None)
+                if not callable(getter):
+                    raise persistence_error(
+                        operation="session row",
+                        stage="verify",
+                        session_id=self.session_id,
+                        kind="no_op",
+                    )
+                row = getter(self.session_id)
+                if not isinstance(row, dict) or row.get("id") != self.session_id:
+                    raise persistence_error(
+                        operation="session row",
+                        stage="verify",
+                        session_id=self.session_id,
+                        kind="no_op",
+                    )
             self._session_db_created = True
+            return True
+        except SessionPersistenceError as error:
+            self._remember_persistence_error(error)
+            self._session_db_created = False
+            raise
         except Exception as e:
-            # Transient failure (e.g. SQLite lock). Keep _session_db alive —
-            # _session_db_created stays False so next run_conversation() retries.
-            logger.warning(
-                "Session DB creation failed (will retry next turn): %s", e
+            # Keep the handle alive so a later turn can retry, but never call
+            # a required turn successful without a verified row.
+            error = persistence_error_from_exception(
+                operation="session row",
+                stage="create",
+                session_id=self.session_id,
+                exc=e,
             )
+            self._remember_persistence_error(error)
+            self._session_db_created = False
+            if required:
+                raise error from e
+            logger.warning("Session DB creation failed: %s", error.diagnostic())
+            return False
+
+    def _remember_persistence_error(self, error) -> None:
+        self._last_persistence_error = error
+        self._last_persistence_error_cause = getattr(error, "kind", "unknown")
 
     def _bind_kanban_worker_session(self) -> None:
         """Bind this durable session row to its claim-fenced Kanban run."""
@@ -2294,7 +2397,13 @@ class AIAgent:
                 if platform_id is not None:
                     msg["platform_message_id"] = platform_id
 
-    def _persist_session(self, messages: List[Dict], conversation_history: List[Dict] = None):
+    def _persist_session(
+        self,
+        messages: List[Dict],
+        conversation_history: List[Dict] = None,
+        *,
+        require_persistence: bool = False,
+    ):
         """Save session state to both JSON log and SQLite on any exit path.
 
         Ensures conversations are never lost, even on errors or early returns.
@@ -2319,20 +2428,38 @@ class AIAgent:
             self._drop_trailing_empty_response_scaffolding(messages)
             self._session_messages = messages
             self._save_session_log(messages)
-            self._flush_messages_to_session_db(messages, conversation_history)
+            flush_result = self._flush_messages_to_session_db(
+                messages, conversation_history
+            )
+            if require_persistence and flush_result is not True:
+                from agent.persistence import (
+                    SessionPersistenceError,
+                    persistence_error,
+                )
+
+                error = getattr(self, "_last_persistence_error", None)
+                if not isinstance(error, SessionPersistenceError):
+                    error = persistence_error(
+                        operation="transcript flush",
+                        stage="turn start",
+                        session_id=getattr(self, "session_id", None),
+                        kind="unknown",
+                    )
+                    self._remember_persistence_error(error)
+                raise error
             # Drain async token-accounting deltas at every persist point (turn
             # finalize + error exits) so a crash after this line loses at most
             # the in-flight API call's delta. Cheap no-op when nothing queued.
             if self._session_db is not None:
                 self._session_db.flush_token_counts()
             note_turn_persisted(self)
+            return flush_result
 
         if persist_lock is None:
-            _persist_and_drain()
-            return
+            return _persist_and_drain()
 
         with persist_lock:
-            _persist_and_drain()
+            return _persist_and_drain()
 
     def _drop_trailing_empty_response_scaffolding(self, messages: List[Dict]) -> None:
         """Remove private empty-response retry/failure scaffolding from transcript tails.
@@ -2435,7 +2562,19 @@ class AIAgent:
         # "becomes" the curator. Hard-stop before any DB touch.
         if getattr(self, "_persist_disabled", False):
             return None
-        if not self._session_db:
+        required = bool(getattr(self, "_persistence_required", False))
+        if self._session_db is None:
+            if required:
+                from agent.persistence import persistence_error
+
+                error = persistence_error(
+                    operation="transcript flush",
+                    stage="open",
+                    session_id=getattr(self, "session_id", None),
+                    kind="unavailable",
+                )
+                self._remember_persistence_error(error)
+                return False
             return None
         # Persist user-message override (#48677 chokepoint): historically this
         # mutated the live `messages` list in place, which — on the early
@@ -2449,10 +2588,15 @@ class AIAgent:
         _ov_idx = getattr(self, "_persist_user_message_idx", None)
         _ov_content = getattr(self, "_persist_user_message_override", None)
         _ov_timestamp = getattr(self, "_persist_user_message_timestamp", None)
+        from agent.persistence import (
+            SessionPersistenceError,
+            persistence_error,
+            persistence_error_from_exception,
+        )
         try:
             # Retry row creation if the earlier attempt failed transiently.
             if not self._session_db_created:
-                self._ensure_db_session()
+                self._ensure_db_session(required=required)
             # Positional flushing used to slice at
             # max(len(conversation_history), _last_flushed_db_idx). That
             # assumes the live `messages` list is the original history plus a
@@ -2691,7 +2835,15 @@ class AIAgent:
             # re-writes the whole tail (same recovery contract as before,
             # minus the partial-prefix case that could double-pay counters).
             if _batch_rows:
-                self._session_db.append_messages_batch(
+                # append_messages_batch returns fresh inserts. Transcript
+                # repair may instead fill an existing blank row, which is
+                # durable without increasing that count.
+                expected_fresh_rows = sum(
+                    1
+                    for row in _batch_rows
+                    if not isinstance(row.get("_row_id"), int)
+                )
+                inserted = self._session_db.append_messages_batch(
                     session_id=self.session_id,
                     messages=_batch_rows,
                     compression_lock_holder=getattr(
@@ -2705,6 +2857,13 @@ class AIAgent:
                     )
                     or 300.0,
                 )
+                if required and inserted != expected_fresh_rows:
+                    raise persistence_error(
+                        operation="transcript flush",
+                        stage="append",
+                        session_id=getattr(self, "session_id", None),
+                        kind="no_op",
+                    )
                 from agent.transcript_repair import sync_flushed_message_markers
 
                 sync_flushed_message_markers(_batch_msgs, _batch_rows)
@@ -2717,6 +2876,15 @@ class AIAgent:
             # a partially-processed list can never be treated as settled.
             self._db_flush_scan_prefix = messages[:]
             return True
+        except SessionPersistenceError as e:
+            self._db_flush_scan_prefix = None
+            remember_error = getattr(self, "_remember_persistence_error", None)
+            if callable(remember_error):
+                remember_error(e)
+            else:
+                self._last_persistence_error = e
+                self._last_persistence_error_cause = getattr(e, "kind", "unknown")
+            return False
         except Exception as e:
             # Force a full re-scan on the next flush: an exception mid-loop
             # leaves messages with mixed dispositions.
@@ -2729,11 +2897,21 @@ class AIAgent:
                 CompressionSessionClosedError,
                 StateDbCorruptError,
                 StateDbReplacedError,
-                classify_persistence_error,
                 divert_session_transcript_jsonl,
             )
 
-            self._last_persistence_error_cause = classify_persistence_error(e)
+            error = persistence_error_from_exception(
+                operation="transcript flush",
+                stage="append",
+                session_id=getattr(self, "session_id", None),
+                exc=e,
+            )
+            remember_error = getattr(self, "_remember_persistence_error", None)
+            if callable(remember_error):
+                remember_error(error)
+            else:
+                self._last_persistence_error = error
+                self._last_persistence_error_cause = error.kind
             if isinstance(e, (StateDbReplacedError, StateDbCorruptError)):
                 # Replaced generation or quarantined (structurally corrupt)
                 # handle: SQLite will not take this batch again, so keep it
@@ -2745,10 +2923,9 @@ class AIAgent:
                     )
                 except Exception:
                     logger.warning(
-                        "JSONL divert failed after state.db %s for %s",
-                        self._last_persistence_error_cause,
+                        "JSONL divert failed after state.db persistence error "
+                        "for session=%s",
                         getattr(self, "session_id", None),
-                        exc_info=True,
                     )
             if isinstance(e, CompressionSessionClosedError):
                 # Compression race: another path rotated this session while
@@ -2769,9 +2946,8 @@ class AIAgent:
                         tip = self._session_db.get_compression_tip(old_id)
                     except Exception as tip_exc:
                         logger.warning(
-                            "compression tip lookup failed for %s: %s",
+                            "compression tip lookup failed for session=%s",
                             old_id,
-                            tip_exc,
                         )
                     if tip and tip != old_id:
                         tip_row = None
@@ -2800,9 +2976,11 @@ class AIAgent:
                 # turn-completion explanation name compression rotation
                 # instead of the historical (misleading) full-disk advice.
                 self._compression_adoption_failed = True
-                logger.warning("Session DB append_message failed: %s", e)
+                logger.warning(
+                    "Session DB append failed: %s", error.diagnostic()
+                )
                 return False
-            logger.warning("Session DB append_message failed: %s", e)
+            logger.warning("Session DB append failed: %s", error.diagnostic())
             return False
 
     def _get_messages_up_to_last_assistant(self, messages: List[Dict]) -> List[Dict]:

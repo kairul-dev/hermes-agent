@@ -496,6 +496,38 @@ def _(rid, params: dict) -> dict:
         # claim so this prompt starts normally instead of being stranded in a
         # queue whose drain already ran.
 
+    # Establish and verify the row before truncation, agent construction, or
+    # compute-host dispatch. A normal Forge/TUI prompt is durable by contract;
+    # no provider or tool work may follow a missing/unavailable/unverified row.
+    from agent.persistence import (
+        SessionPersistenceError,
+        persistence_error_from_exception,
+    )
+
+    try:
+        _invoke_required_persistence_gate(_ensure_session_db_row, session)
+    except Exception as exc:
+        error = (
+            exc
+            if isinstance(exc, SessionPersistenceError)
+            else persistence_error_from_exception(
+                operation="session row",
+                stage="prompt gate",
+                session_id=session.get("session_key"),
+                exc=exc,
+            )
+        )
+        logger.warning(
+            "prompt.submit persistence gate rejected session: %s",
+            error.diagnostic(),
+        )
+        return _err(
+            rid,
+            5071,
+            error.user_message,
+            {"persistence": error.diagnostic()},
+        )
+
     # Filled when this submit performed a truncation against a durable session:
     # the fresh post-rewrite row ids of the surviving user turns, for client
     # rowId rebinding (see comment at the assignment site).
@@ -950,42 +982,35 @@ def _(rid, params: dict) -> dict:
             isolated_response["error"].get("message", "unknown error"),
         )
 
-    # Persist the DB row lazily, now that the user has actually sent a message.
-    # Disk-full must fail the RPC (not stream silently): desktop maps the error
-    # string to a "disk full" toast so the user knows why the send vanished.
+    # A branch becomes real here: copy its parent's transcript into the row so
+    # it resumes with full context. The row was already established strictly
+    # above; lineage/seed failure must still prevent the turn from starting.
     try:
-        if _ensure_session_db_row(session) is False:
-            # Store unavailable: failing the RPC is the only user-visible
-            # signal — same principle as the disk-full path above (#98924).
-            # _db_error carries the SessionDB open failure for the toast.
-            return _err(
-                rid,
-                5072,
-                "session storage unavailable: "
-                f"{_db_error or 'state.db could not be opened'} — the message "
-                "was not saved; repair state.db and try again",
-            )
-        # A branch becomes real here: copy its parent's transcript into the row so it
-        # resumes with full context (the agent won't persist the seed itself).
-        _persist_branch_seed(session)
+        _invoke_required_persistence_gate(_persist_branch_seed, session)
     except Exception as exc:
-        from hermes_state import is_disk_full_error
-
         with session["history_lock"]:
             session["running"] = False
             session["last_active"] = time.time()
             _clear_inflight_turn(session)
-        if is_disk_full_error(exc):
-            return _err(
-                rid,
-                5070,
-                "disk full: session storage could not be written — free some disk space and try again",
+        error = (
+            exc
+            if isinstance(exc, SessionPersistenceError)
+            else persistence_error_from_exception(
+                operation="branch seed",
+                stage="prompt gate",
+                session_id=session.get("session_key"),
+                exc=exc,
             )
-        logger.warning("prompt.submit: session persist failed: %s", exc, exc_info=True)
+        )
+        logger.warning(
+            "prompt.submit branch persistence gate rejected session: %s",
+            error.diagnostic(),
+        )
         return _err(
             rid,
             5071,
-            f"session storage could not be written: {exc}",
+            error.user_message,
+            {"persistence": error.diagnostic()},
         )
     # A completed FAILED build must not wedge the session: the error frame
     # says retryable, so a new send (or the error card's Retry) rebuilds the

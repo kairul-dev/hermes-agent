@@ -490,6 +490,40 @@ class ComputeHost:
             from tui_gateway import server
 
             session = self._ensure_server_session(server, frame)
+            from agent.persistence import (
+                SessionPersistenceError,
+                persistence_error_from_exception,
+            )
+
+            try:
+                server._invoke_required_persistence_gate(
+                    server._ensure_session_db_row, session
+                )
+                server._invoke_required_persistence_gate(
+                    server._persist_branch_seed, session
+                )
+            except Exception as exc:
+                error = (
+                    exc
+                    if isinstance(exc, SessionPersistenceError)
+                    else persistence_error_from_exception(
+                        operation="session row",
+                        stage="compute-host gate",
+                        session_id=session.get("session_key"),
+                        exc=exc,
+                    )
+                )
+                self.emit(
+                    {
+                        "type": "turn.error",
+                        "sid": sid,
+                        "request_id": request_id,
+                        "reason": "session_persistence_failed",
+                        "message": error.user_message,
+                        "persistence": error.diagnostic(),
+                    }
+                )
+                return
             with session["history_lock"]:
                 queued_prompt_generation = frame.get("queued_prompt_generation")
                 if (
@@ -516,17 +550,9 @@ class ComputeHost:
                 server._start_inflight_turn(session, frame.get("text") if "text" in frame else frame.get("prompt"))
             self.emit({"type": "turn.started", "sid": sid, "request_id": request_id, "started_ns": now_ns()})
             try:
-                server._ensure_session_db_row(session)
-            except Exception:
-                pass
-            try:
                 import hermes_undo
 
                 hermes_undo.on_user_message_appended(session["session_key"])
-            except Exception:
-                pass
-            try:
-                server._persist_branch_seed(session)
             except Exception:
                 pass
             text = frame.get("text") if "text" in frame else frame.get("prompt", "")

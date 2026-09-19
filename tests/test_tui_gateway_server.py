@@ -309,7 +309,7 @@ def test_prompt_submit_dispatches_to_compute_host_when_turn_isolation_enabled(mo
         assert fake_supervisor.frames[0]["text"] == "hello"
         assert fake_supervisor.frames[0]["history"] == seed_history
         assert server._sessions["iso-sid"]["history"] == seed_history
-        assert parent_writes == {"ensure_session": 0, "persist_seed": 0}
+        assert parent_writes == {"ensure_session": 1, "persist_seed": 0}
         assert server._sessions["iso-sid"]["running"] is True
 
         fake_supervisor.callback(
@@ -1403,7 +1403,9 @@ def test_run_prompt_submit_never_ticks_after_message_complete(monkeypatch):
             assert tick_seen.wait(5.0), "no live tick during the turn"
             return {"final_response": "done", "messages": [], "completed": True}
 
-    server._sessions["sid"] = _session(agent=_Agent())
+    # This test isolates usage-ticker ordering and intentionally has no store;
+    # mark that non-persistent harness context explicitly.
+    server._sessions["sid"] = _session(agent=_Agent(), _persist_disabled=True)
     try:
         server.handle_request(
             {
@@ -1512,7 +1514,9 @@ def test_run_prompt_submit_joins_ticker_without_timeout(monkeypatch):
         ):
             return {"final_response": "done", "messages": [], "completed": True}
 
-    server._sessions["sid"] = _session(agent=_Agent())
+    # This test isolates usage-ticker teardown and intentionally has no store;
+    # mark that non-persistent harness context explicitly.
+    server._sessions["sid"] = _session(agent=_Agent(), _persist_disabled=True)
     try:
         server.handle_request(
             {
@@ -6184,7 +6188,12 @@ def test_prompt_submit_rejects_negative_truncate_ordinal(monkeypatch):
         {"role": "user", "content": "second"},
         {"role": "assistant", "content": "done"},
     ]
-    server._sessions["trunc-sid"] = _session(history=list(history))
+    # This test exercises request validation and intentionally keeps database
+    # writes out of scope; the strict persistence contract is covered by the
+    # dedicated disposable-DB tests.
+    server._sessions["trunc-sid"] = _session(
+        history=list(history), _persist_disabled=True
+    )
     monkeypatch.setattr(server, "_get_db", lambda: _FakeDB())
     # If the guard ever lets a negative ordinal through, these would run and the
     # session would be marked busy; failing here makes that regression loud.
@@ -6231,7 +6240,9 @@ def test_prompt_submit_refuses_boolean_ordinal(monkeypatch):
         {"role": "user", "content": "second"},
         {"role": "assistant", "content": "reply 2"},
     ]
-    server._sessions["bool-trunc-sid"] = _session(history=list(history))
+    server._sessions["bool-trunc-sid"] = _session(
+        history=list(history), _persist_disabled=True
+    )
     monkeypatch.setattr(
         server, "_start_agent_build", lambda *a, **k: pytest.fail("must not start a turn")
     )
@@ -6272,7 +6283,9 @@ def test_prompt_submit_refuses_confirm_truncate_without_target(monkeypatch):
         {"role": "user", "content": "first"},
         {"role": "assistant", "content": "reply 1"},
     ]
-    server._sessions["bare-confirm-sid"] = _session(history=list(history))
+    server._sessions["bare-confirm-sid"] = _session(
+        history=list(history), _persist_disabled=True
+    )
     monkeypatch.setattr(
         server, "_start_agent_build", lambda *a, **k: pytest.fail("must not start a turn")
     )
@@ -6330,7 +6343,9 @@ def test_prompt_submit_refuses_unconfirmed_nonempty_truncation(monkeypatch):
         {"role": "user", "content": "third"},
         {"role": "assistant", "content": "sure"},
     ]
-    server._sessions["unconfirmed-trunc-sid"] = _session(history=list(history))
+    server._sessions["unconfirmed-trunc-sid"] = _session(
+        history=list(history), _persist_disabled=True
+    )
     monkeypatch.setattr(server, "_get_db", lambda: _FakeDB())
     monkeypatch.setattr(
         server, "_start_agent_build", lambda *a, **k: pytest.fail("must not start a turn")
@@ -6393,7 +6408,9 @@ def test_prompt_submit_truncates_by_message_id(monkeypatch):
         {"id": "msg-2", "role": "user", "content": "second"},
         {"role": "assistant", "content": "reply 2"},
     ]
-    server._sessions["msg-id-trunc-sid"] = _session(history=list(history))
+    server._sessions["msg-id-trunc-sid"] = _session(
+        history=list(history), _persist_disabled=True
+    )
     monkeypatch.setattr(server, "_get_db", lambda: _FakeDB())
     monkeypatch.setattr(
         server, "_start_agent_build", lambda *a, **k: None
@@ -6451,7 +6468,7 @@ def test_prompt_submit_truncation_falls_back_to_sid_when_session_key_null(monkey
         {"_row_id": 104, "role": "assistant", "content": "reply 2"},
     ]
     server._sessions["null-key-trunc-sid"] = _session(
-        history=list(history), session_key=None
+        history=list(history), session_key=None, _persist_disabled=True
     )
     monkeypatch.setattr(server, "_get_db", lambda: _FakeDB())
     monkeypatch.setattr(server, "_start_agent_build", lambda *a, **k: None)
@@ -6488,7 +6505,9 @@ def test_prompt_submit_refuses_ordinal_and_message_id_mismatch(monkeypatch):
         {"id": "msg-2", "role": "user", "content": "second"},
         {"role": "assistant", "content": "reply 2"},
     ]
-    server._sessions["mismatch-trunc-sid"] = _session(history=list(history))
+    server._sessions["mismatch-trunc-sid"] = _session(
+        history=list(history), _persist_disabled=True
+    )
     monkeypatch.setattr(
         server, "_start_agent_build", lambda *a, **k: pytest.fail("must not start a turn")
     )
@@ -6538,7 +6557,9 @@ def test_prompt_submit_refuses_ordinal_only_when_history_has_row_ids(monkeypatch
         {"_row_id": 103, "role": "user", "content": "second"},
         {"_row_id": 104, "role": "assistant", "content": "reply 2"},
     ]
-    server._sessions["ordinal-only-durable-sid"] = _session(history=list(history))
+    server._sessions["ordinal-only-durable-sid"] = _session(
+        history=list(history), _persist_disabled=True
+    )
     monkeypatch.setattr(server, "_get_db", lambda: _FakeDB())
     monkeypatch.setattr(
         server, "_start_agent_build", lambda *a, **k: pytest.fail("must not start a turn")
@@ -6589,7 +6610,9 @@ def test_prompt_submit_refuses_ordinal_only_when_durable_history_is_unstamped(mo
         def replace_messages(self, key, messages, active_only=False, archive_dropped=False):
             replaced.append((key, list(messages)))
 
-    server._sessions["unstamped-durable-sid"] = _session(history=list(history))
+    server._sessions["unstamped-durable-sid"] = _session(
+        history=list(history), _persist_disabled=True
+    )
     monkeypatch.setattr(server, "_get_db", lambda: _FakeDB())
     monkeypatch.setattr(
         server, "_start_agent_build", lambda *a, **k: pytest.fail("must not start a turn")
@@ -6641,7 +6664,7 @@ def test_prompt_submit_truncates_by_row_id(monkeypatch):
         {"_row_id": 103, "role": "user", "content": "second"},
         {"_row_id": 104, "role": "assistant", "content": "reply 2"},
     ]
-    sess = _session(history=list(history))
+    sess = _session(history=list(history), _persist_disabled=True)
     server._sessions["row-id-trunc-sid"] = sess
     monkeypatch.setattr(server, "_get_db", lambda: _FakeDB())
     started = []
@@ -6693,7 +6716,7 @@ def test_prompt_submit_truncates_by_string_row_id(monkeypatch):
         {"_row_id": "103", "role": "user", "content": "second"},
         {"_row_id": "104", "role": "assistant", "content": "reply 2"},
     ]
-    sess = _session(history=list(history))
+    sess = _session(history=list(history), _persist_disabled=True)
     server._sessions["str-row-id-trunc-sid"] = sess
     monkeypatch.setattr(server, "_get_db", lambda: _FakeDB())
     monkeypatch.setattr(server, "_start_agent_build", lambda *a, **k: None)
@@ -6725,7 +6748,9 @@ def test_prompt_submit_refuses_ordinal_and_row_id_mismatch(monkeypatch):
         {"_row_id": 203, "role": "user", "content": "second"},
         {"_row_id": 204, "role": "assistant", "content": "reply 2"},
     ]
-    server._sessions["row-mismatch-sid"] = _session(history=list(history))
+    server._sessions["row-mismatch-sid"] = _session(
+        history=list(history), _persist_disabled=True
+    )
     monkeypatch.setattr(
         server, "_start_agent_build", lambda *a, **k: pytest.fail("must not start a turn")
     )
@@ -6757,7 +6782,9 @@ def test_prompt_submit_refuses_boolean_row_id(monkeypatch):
         {"_row_id": 301, "role": "user", "content": "first"},
         {"_row_id": 302, "role": "assistant", "content": "reply 1"},
     ]
-    server._sessions["bool-row-sid"] = _session(history=list(history))
+    server._sessions["bool-row-sid"] = _session(
+        history=list(history), _persist_disabled=True
+    )
     try:
         resp = server.handle_request(
             {
@@ -6783,7 +6810,9 @@ def test_prompt_submit_row_id_not_found(monkeypatch):
     history = [
         {"_row_id": 401, "role": "user", "content": "first"},
     ]
-    server._sessions["missing-row-sid"] = _session(history=list(history))
+    server._sessions["missing-row-sid"] = _session(
+        history=list(history), _persist_disabled=True
+    )
     try:
         resp = server.handle_request(
             {
@@ -6810,7 +6839,9 @@ def test_prompt_submit_row_id_ignores_platform_id_fallback(monkeypatch):
         {"id": "999", "role": "user", "content": "first"},
         {"role": "assistant", "content": "reply 1"},
     ]
-    server._sessions["string-id-sid"] = _session(history=list(history))
+    server._sessions["string-id-sid"] = _session(
+        history=list(history), _persist_disabled=True
+    )
     try:
         resp = server.handle_request({
             "id": "1",
@@ -6854,7 +6885,9 @@ def test_prompt_submit_refuses_empty_truncation_without_confirm(monkeypatch):
         {"_row_id": 103, "role": "user", "content": "second"},
         {"_row_id": 104, "role": "assistant", "content": "done"},
     ]
-    server._sessions["empty-trunc-sid"] = _session(history=list(history))
+    server._sessions["empty-trunc-sid"] = _session(
+        history=list(history), _persist_disabled=True
+    )
     monkeypatch.setattr(server, "_get_db", lambda: _FakeDB())
     monkeypatch.setattr(
         server, "_start_agent_build", lambda *a, **k: pytest.fail("must not start a turn")
@@ -6951,7 +6984,7 @@ def test_prompt_submit_empty_truncation_allowed_with_confirm(monkeypatch):
         {"_row_id": 104, "role": "assistant", "content": "done"},
     ]
     server._sessions["confirm-empty-sid"] = _session(
-        agent=_Agent(), history=list(history)
+        agent=_Agent(), history=list(history), _persist_disabled=True
     )
 
     try:
@@ -8196,6 +8229,9 @@ def test_session_create_drops_pending_title_on_valueerror(monkeypatch):
         "show_reasoning": False,
         "tool_progress_mode": "all",
         "pending_title": "duplicate title",
+        # This test isolates post-message title handling and uses a title-only
+        # fake store, not the durable prompt gate.
+        "_persist_disabled": True,
     }
 
     server._sessions["sid"] = session
@@ -12744,7 +12780,9 @@ def test_prompt_submit_can_truncate_before_user_ordinal(monkeypatch):
         {"role": "user", "content": "second"},
         {"role": "assistant", "content": "second reply"},
     ]
-    server._sessions["sid"] = _session(agent=_Agent(), history=original_history)
+    server._sessions["sid"] = _session(
+        agent=_Agent(), history=original_history, _persist_disabled=True
+    )
 
     class _StubDb:
         def __init__(self):
@@ -12813,7 +12851,7 @@ def test_prompt_submit_refuses_turn_when_truncate_persist_fails(monkeypatch):
         {"role": "user", "content": "second"},
         {"role": "assistant", "content": "second reply"},
     ]
-    sess = _session(history=list(original_history))
+    sess = _session(history=list(original_history), _persist_disabled=True)
     server._sessions["trunc-fail-sid"] = sess
 
     class _FailDb:
@@ -12913,7 +12951,9 @@ def test_prompt_submit_truncate_ordinal_skips_display_kind_rows(monkeypatch):
             "display_kind": "async_delegation_complete",
         },
     ]
-    server._sessions["sid"] = _session(agent=_Agent(), history=original_history)
+    server._sessions["sid"] = _session(
+        agent=_Agent(), history=original_history, _persist_disabled=True
+    )
 
     class _StubDb:
         def __init__(self):
@@ -13021,6 +13061,7 @@ def test_prompt_submit_truncate_translates_display_prefix_ordinal(monkeypatch):
         agent=_Agent(),
         history=tip_history,
         display_history_prefix=display_prefix,
+        _persist_disabled=True,
     )
 
     class _StubDb:
@@ -13087,6 +13128,7 @@ def test_prompt_submit_truncate_oor_includes_structured_user_turn_count(monkeypa
     server._sessions["sid"] = _session(
         history=tip_history,
         display_history_prefix=display_prefix,
+        _persist_disabled=True,
     )
 
     try:
@@ -13168,7 +13210,11 @@ def test_prompt_submit_row_id_accepts_full_lineage_ordinal(monkeypatch):
             assert reject_active_turn_lease is True
             replaced.append((key, list(messages)))
 
-    sess = _session(history=list(tip_history), display_history_prefix=display_prefix)
+    sess = _session(
+        history=list(tip_history),
+        display_history_prefix=display_prefix,
+        _persist_disabled=True,
+    )
     server._sessions["lineage-row-sid"] = sess
     monkeypatch.setattr(server, "_get_db", lambda: _FakeDB())
     monkeypatch.setattr(server, "_start_agent_build", lambda *a, **k: None)
@@ -13201,7 +13247,11 @@ def test_prompt_submit_row_id_accepts_full_lineage_ordinal(monkeypatch):
 
     # A genuinely stale ordinal (matches neither the tip space nor the
     # lineage space) must still refuse with the #82756 mismatch.
-    sess2 = _session(history=list(tip_history), display_history_prefix=display_prefix)
+    sess2 = _session(
+        history=list(tip_history),
+        display_history_prefix=display_prefix,
+        _persist_disabled=True,
+    )
     server._sessions["lineage-row-sid-2"] = sess2
     monkeypatch.setattr(
         server, "_start_agent_build", lambda *a, **k: pytest.fail("must not start a turn")
@@ -14686,8 +14736,9 @@ def test_prompt_submit_fails_loudly_when_store_unavailable(monkeypatch):
     finally:
         server._sessions.pop("lost-sid", None)
 
-    assert resp["error"]["code"] == 5072
-    assert "session storage unavailable" in resp["error"]["message"]
+    assert resp["error"]["code"] == 5071
+    assert resp["error"]["data"]["persistence"]["kind"] == "unavailable"
+    assert "session store is unavailable" in resp["error"]["message"]
 
 
 @pytest.mark.real_agent_prewarm
@@ -16435,7 +16486,7 @@ def test_prompt_submit_wires_live_title_rename_callback(monkeypatch):
             }
 
     agent = _Agent()
-    server._sessions["sid"] = _session(agent=agent)
+    server._sessions["sid"] = _session(agent=agent, _persist_disabled=True)
     emitted = []
     monkeypatch.setattr(server.threading, "Thread", _ImmediateThread)
     monkeypatch.setattr(
@@ -16486,7 +16537,9 @@ def test_prompt_submit_surfaces_backend_error_as_visible_text(monkeypatch):
                 "error": "HTTP 400: invalid model id 'kimi-k2.6'",
             }
 
-    server._sessions["sid"] = _session(agent=_Agent())
+    server._sessions["sid"] = _session(
+        agent=_Agent(), _persist_disabled=True
+    )
     monkeypatch.setattr(server.threading, "Thread", _ImmediateThread)
 
     emitted: list[tuple[str, str, dict]] = []
@@ -16529,7 +16582,9 @@ def test_prompt_submit_preserves_empty_response_without_error(monkeypatch):
                 "completed": True,
             }
 
-    server._sessions["sid"] = _session(agent=_Agent())
+    server._sessions["sid"] = _session(
+        agent=_Agent(), _persist_disabled=True
+    )
     monkeypatch.setattr(server.threading, "Thread", _ImmediateThread)
 
     emitted: list[tuple[str, str, dict]] = []
@@ -16699,7 +16754,9 @@ def test_session_activate_returns_inflight_stream_before_completion(monkeypatch)
                 ],
             }
 
-    server._sessions["sid-live"] = _session(agent=_Agent())
+    server._sessions["sid-live"] = _session(
+        agent=_Agent(), _persist_disabled=True
+    )
     monkeypatch.setattr(server, "make_stream_renderer", lambda cols: None)
     monkeypatch.setattr(server, "render_message", lambda raw, cols: None)
     monkeypatch.setattr(server, "_get_db", lambda: None)
@@ -21065,6 +21122,7 @@ def test_personality_marker_does_not_shift_truncate_ordinal(monkeypatch):
             {"role": "user", "content": "first"},
             {"role": "assistant", "content": "first reply"},
         ],
+        _persist_disabled=True,
     )
     server._sessions["personality-ordinal-sid"] = session
     stub_db = _StubDb()
@@ -21186,6 +21244,7 @@ def test_prompt_submit_truncation_archives_instead_of_deleting(monkeypatch):
             {"role": "user", "content": "second"},
             {"role": "assistant", "content": "second reply"},
         ],
+        _persist_disabled=True,
     )
 
     try:
@@ -21253,7 +21312,7 @@ def test_prompt_submit_unmatched_row_id_refuses_even_with_ordinal(monkeypatch):
         {"_row_id": 103, "role": "user", "content": "second"},
         {"_row_id": 104, "role": "assistant", "content": "reply 2"},
     ]
-    sess = _session(history=list(history))
+    sess = _session(history=list(history), _persist_disabled=True)
     server._sessions["fallback-row-id-sid"] = sess
     monkeypatch.setattr(server, "_get_db", lambda: _FakeDB())
     monkeypatch.setattr(
@@ -21305,7 +21364,7 @@ def test_prompt_submit_unmatched_message_id_refuses_even_with_ordinal(monkeypatc
         {"_row_id": 203, "role": "user", "content": "second"},
         {"_row_id": 204, "role": "assistant", "content": "reply 2"},
     ]
-    sess = _session(history=list(history))
+    sess = _session(history=list(history), _persist_disabled=True)
     server._sessions["synthetic-msg-id-sid"] = sess
     monkeypatch.setattr(server, "_get_db", lambda: _FakeDB())
     monkeypatch.setattr(
@@ -21367,7 +21426,11 @@ def test_prompt_submit_row_id_resolves_via_db_when_memory_lacks_stamps(monkeypat
             assert include_row_ids is True
             return list(durable_history)
 
-    sess = _session(history=list(live_history), session_key="db-row-key")
+    sess = _session(
+        history=list(live_history),
+        session_key="db-row-key",
+        _persist_disabled=True,
+    )
     server._sessions["db-row-resolve-sid"] = sess
     monkeypatch.setattr(server, "_get_db", lambda: _FakeDB())
     monkeypatch.setattr(server, "_start_agent_build", lambda *a, **k: None)
@@ -21710,7 +21773,11 @@ def test_prompt_submit_row_id_db_fallback_ordinal_mapping_verifies_content(
         def get_messages_as_conversation(self, key, repair_alternation=False, include_row_ids=False):
             return [dict(m) for m in durable_history]
 
-    sess = _session(history=list(live_history), session_key="db-fallback-verify-key")
+    sess = _session(
+        history=list(live_history),
+        session_key="db-fallback-verify-key",
+        _persist_disabled=True,
+    )
     sid = "db-fallback-verify-sid"
     server._sessions[sid] = sess
     monkeypatch.setattr(server, "_get_db", lambda: _FakeDB())
@@ -21955,7 +22022,11 @@ def test_prompt_submit_unconfirmed_truncation_refuses_before_target_resolution(
         {"role": "user", "content": "second"},
         {"role": "assistant", "content": "r2"},
     ]
-    sess = _session(history=list(hist), session_key="consent-precedence-key")
+    sess = _session(
+        history=list(hist),
+        session_key="consent-precedence-key",
+        _persist_disabled=True,
+    )
     sid = "consent-precedence-sid"
     server._sessions[sid] = sess
     monkeypatch.setattr(server, "_get_db", lambda: _SpyDB())

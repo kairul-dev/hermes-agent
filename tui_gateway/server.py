@@ -4092,17 +4092,44 @@ def _register_session_cwd(session: dict | None) -> None:
         pass
 
 
-def _ensure_session_db_row(session: dict) -> bool:
+def _invoke_required_persistence_gate(gate, session: dict):
+    """Invoke a strict persistence gate while keeping legacy test doubles usable.
+
+    Production gates accept ``required=True``. A few gateway tests replace the
+    gate with a one-argument spy; introspection lets those doubles observe the
+    call without catching a real TypeError raised by the gate itself. An
+    explicitly marked non-persistent internal/test session keeps its existing
+    opt-out and never silently applies to an ordinary Forge session.
+    """
+    if session.get("_persist_disabled"):
+        return gate(session)
+    import inspect
+
+    try:
+        parameters = inspect.signature(gate).parameters.values()
+    except (TypeError, ValueError):
+        return gate(session, required=True)
+    if any(
+        parameter.name == "required"
+        or parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters
+    ):
+        return gate(session, required=True)
+    return gate(session)
+
+
+def _ensure_session_db_row(session: dict, *, required: bool = False) -> bool:
     """Idempotently persist the session's DB row on first real activity.
 
     Called from prompt.submit so a row only exists once the user actually sends
     a message — abandoned drafts never leave an empty "Untitled" session behind.
     Uses INSERT OR IGNORE under the hood, so re-calls (and the AIAgent's own
     lazy create) are no-ops.
-    Returns False only when the store is unavailable (no openable state.db);
-    prompt.submit turns that into an RPC error so a send fails loudly with a
-    toast instead of streaming into a store that will never save it (#98924).
-    Every other outcome — no key, best-effort attempt, success — is True.
+    When ``required`` is true, a missing key, unavailable store, failed write,
+    or unverified/no-op write raises ``SessionPersistenceError``. The normal
+    prompt path uses this strict mode so it cannot stream a turn into a store
+    that will never save it. Internal lifecycle helpers retain best-effort
+    behavior unless they opt in explicitly.
 
     A cwd the user *chose* is always persisted. When they made no explicit
     choice the launch directory stands in, and whether that is meaningful
@@ -4118,8 +4145,21 @@ def _ensure_session_db_row(session: dict) -> bool:
       the session with no cwd AND no git_repo_root, so the sidebar could never
       place it under its project.
     """
+    from agent.persistence import (
+        SessionPersistenceError,
+        persistence_error,
+        persistence_error_from_exception,
+    )
+
     key = session.get("session_key")
     if not key:
+        if required:
+            raise persistence_error(
+                operation="session row",
+                stage="validate",
+                session_id=key,
+                kind="missing_key",
+            )
         return
     # Persist into the session's own profile db (global remote mode), not the
     # launch profile's — otherwise the row lands in the wrong state.db, the
@@ -4131,14 +4171,28 @@ def _ensure_session_db_row(session: dict) -> bool:
         try:
             from hermes_state import get_shared_session_db
             db = get_shared_session_db(Path(profile_home) / "state.db")
-        except Exception:
-            logger.debug("failed to open profile db for session row", exc_info=True)
+        except Exception as exc:
+            if required:
+                raise persistence_error_from_exception(
+                    operation="session row",
+                    stage="open",
+                    session_id=key,
+                    exc=exc,
+                ) from exc
+            logger.debug("failed to open profile db for session row")
             return False
         close_db = True
     else:
         db = _get_db()
         close_db = False
     if db is None:
+        if required:
+            raise persistence_error(
+                operation="session row",
+                stage="open",
+                session_id=key,
+                kind="unavailable",
+            )
         # Fail loud ONLY when the store actually failed to open (#98924):
         # _db_error records the SessionDB open exception. A None db with no
         # recorded error means "no store in this context" (degraded harness,
@@ -4186,9 +4240,7 @@ def _ensure_session_db_row(session: dict) -> bool:
             if healed:
                 model_config["provider"] = healed
         except Exception:
-            logger.debug(
-                "custom provider identity recovery failed (db row)", exc_info=True
-            )
+            logger.debug("custom provider identity recovery failed (db row)")
     if (reasoning := session.get("create_reasoning_override")) is not None:
         model_config["reasoning_config"] = reasoning
     create_service_tier_override = session.get("create_service_tier_override")
@@ -4240,6 +4292,16 @@ def _ensure_session_db_row(session: dict) -> bool:
                 Path(profile_home).name if profile_home else _current_profile_name()
             ),
         )
+        if required:
+            getter = getattr(db, "get_session", None)
+            row = getter(key) if callable(getter) else None
+            if not isinstance(row, dict) or row.get("id") != key:
+                raise persistence_error(
+                    operation="session row",
+                    stage="verify",
+                    session_id=key,
+                    kind="no_op",
+                )
         # A session can be born hidden (session.create hidden=true, or a
         # session.set_hidden that arrived before the row existed): apply the
         # deferred intent now that the row exists, mirroring pending_title.
@@ -4247,8 +4309,17 @@ def _ensure_session_db_row(session: dict) -> bool:
             try:
                 db.set_session_hidden(key, True)
             except Exception:
-                logger.debug("failed to apply pending hidden flag", exc_info=True)
+                logger.debug("failed to apply pending hidden flag")
+    except SessionPersistenceError:
+        raise
     except Exception as exc:
+        if required:
+            raise persistence_error_from_exception(
+                operation="session row",
+                stage="create",
+                session_id=key,
+                exc=exc,
+            ) from exc
         # Disk-full is not a soft failure: if we swallow it here, prompt.submit
         # returns {"status":"streaming"} and the user's message vanishes with
         # no toast. Re-raise so the submit handler can return a real RPC error.
@@ -4256,7 +4327,7 @@ def _ensure_session_db_row(session: dict) -> bool:
 
         if is_disk_full_error(exc):
             raise
-        logger.debug("failed to persist desktop session row", exc_info=True)
+        logger.debug("failed to persist desktop session row")
     finally:
         if close_db:
             try:
@@ -4267,7 +4338,7 @@ def _ensure_session_db_row(session: dict) -> bool:
     return True
 
 
-def _persist_branch_seed(session: dict) -> None:
+def _persist_branch_seed(session: dict, *, required: bool = False) -> None:
     """First-turn persist of a branch's copied transcript.
 
     A branch is a draft until its first submit: the parent's messages live only
@@ -4276,10 +4347,23 @@ def _persist_branch_seed(session: dict) -> None:
     branch row would resume missing its pre-branch context. Runs once; the row +
     parent link are written by ``_ensure_session_db_row`` just before this.
     """
+    from agent.persistence import (
+        SessionPersistenceError,
+        persistence_error,
+        persistence_error_from_exception,
+    )
+
     if not session.get("parent_session_id") or session.get("_branch_seed_persisted"):
         return
     key = session.get("session_key")
     if not key:
+        if required:
+            raise persistence_error(
+                operation="branch seed",
+                stage="validate",
+                session_id=key,
+                kind="missing_key",
+            )
         return
     with session["history_lock"]:
         seed = [dict(msg) for msg in (session.get("history") or [])]
@@ -4287,6 +4371,13 @@ def _persist_branch_seed(session: dict) -> None:
         return
     with _session_db(session) as db:
         if db is None:
+            if required:
+                raise persistence_error(
+                    operation="branch seed",
+                    stage="open",
+                    session_id=key,
+                    kind="unavailable",
+                )
             return
         try:
             # Bounded-chunk transactions (see #23254): a branch seed can be
@@ -4294,7 +4385,7 @@ def _persist_branch_seed(session: dict) -> None:
             # concurrent writers aren't starved. Recovery semantics match the
             # old per-row loop (mid-copy failure leaves a partial seed with
             # _branch_seed_persisted unset).
-            db.append_messages_batch(
+            inserted = db.append_messages_batch(
                 key,
                 [
                     {
@@ -4321,13 +4412,29 @@ def _persist_branch_seed(session: dict) -> None:
                 ],
                 chunk_rows=500,
             )
+            if required and inserted != len(seed):
+                raise persistence_error(
+                    operation="branch seed",
+                    stage="verify",
+                    session_id=key,
+                    kind="no_op",
+                )
             session["_branch_seed_persisted"] = True
+        except SessionPersistenceError:
+            raise
         except Exception as exc:
+            if required:
+                raise persistence_error_from_exception(
+                    operation="branch seed",
+                    stage="append",
+                    session_id=key,
+                    exc=exc,
+                ) from exc
             from hermes_state import is_disk_full_error
 
             if is_disk_full_error(exc):
                 raise
-            logger.debug("branch seed persist failed", exc_info=True)
+            logger.debug("branch seed persist failed")
 
 
 @contextlib.contextmanager
@@ -9365,9 +9472,17 @@ def _make_agent(
         fallback_model=_load_fallback_model(),
         **_agent_cbs(sid),
     )
+    # Forge/TUI sessions are durable conversations. The agent-level gate is a
+    # second line of defense for synthesized turns and compute-host paths that
+    # do not pass through prompt.submit's RPC gate. Propagate only the explicit
+    # non-persistent harness opt-out; ordinary or unknown sessions stay strict.
+    with _sessions_lock:
+        context_session = _sessions.get(sid)
+    agent._persist_disabled = bool(
+        context_session and context_session.get("_persist_disabled")
+    )
+    agent._persistence_required = not agent._persist_disabled
     if context_cwd_is_launch_artifact is None:
-        with _sessions_lock:
-            context_session = _sessions.get(sid)
         context_cwd_is_launch_artifact = _context_cwd_is_launch_artifact(
             context_session
         )

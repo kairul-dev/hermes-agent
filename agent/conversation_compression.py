@@ -3405,6 +3405,10 @@ def compress_context(
     _compressor_attempt_snapshot = _snapshot_compressor_attempt_state(
         agent.context_compressor
     )
+    persistence_required = bool(
+        getattr(agent, "_persistence_required", False)
+        and not getattr(agent, "_persist_disabled", False)
+    )
     # Claim attempt ownership: a detached, late-unwinding sibling attempt
     # (stall-fallback overlap) must not restore its snapshot over ours or
     # clear our cancellation consult (#96634 post-merge review).
@@ -4059,7 +4063,18 @@ def compress_context(
                                 messages,
                                 conversation_history=messages[:_preflush_idx],
                             )
-                        except Exception:
+                        except Exception as exc:
+                            if persistence_required:
+                                from agent.persistence import (
+                                    persistence_error_from_exception,
+                                )
+
+                                raise persistence_error_from_exception(
+                                    operation="transcript flush",
+                                    stage="compression pre-adoption",
+                                    session_id=getattr(agent, "session_id", None),
+                                    exc=exc,
+                                ) from exc
                             _preflush_ok = False
                     else:
                         # No known un-persisted tail (anchor unset or already
@@ -4070,6 +4085,21 @@ def compress_context(
                         # (test_compression_concurrent_fork).
                         _preflush_ok = True
                     if not _preflush_ok:
+                        if persistence_required:
+                            from agent.persistence import (
+                                SessionPersistenceError,
+                                persistence_error,
+                            )
+
+                            error = getattr(agent, "_last_persistence_error", None)
+                            if not isinstance(error, SessionPersistenceError):
+                                error = persistence_error(
+                                    operation="transcript flush",
+                                    stage="compression pre-adoption",
+                                    session_id=getattr(agent, "session_id", None),
+                                    kind="write_failed",
+                                )
+                            raise error
                         logger.warning(
                             "compression: session=%s grew before lease "
                             "(%d → %d msgs) but the pre-adoption flush of the "
@@ -4960,16 +4990,30 @@ def compress_context(
                     _tail_count = sum(
                         1 for m in compressed if id(m) in _tail_tagged_ids
                     )
-                    agent._session_db.archive_and_compact(
-                        agent.session_id,
-                        compressed,
-                        model_config_patch={
-                            PROACTIVE_PRUNE_REARM_MODEL_CONFIG_KEY: None,
-                        },
-                        watermark=_commit_watermark,
-                        lock_holder=_lock_holder,
-                        tail_count=_tail_count,
-                    )
+                    try:
+                        agent._session_db.archive_and_compact(
+                            agent.session_id,
+                            compressed,
+                            model_config_patch={
+                                PROACTIVE_PRUNE_REARM_MODEL_CONFIG_KEY: None,
+                            },
+                            watermark=_commit_watermark,
+                            lock_holder=_lock_holder,
+                            tail_count=_tail_count,
+                        )
+                    except Exception as exc:
+                        if persistence_required:
+                            from agent.persistence import (
+                                persistence_error_from_exception,
+                            )
+
+                            raise persistence_error_from_exception(
+                                operation="transcript compression",
+                                stage="in-place commit",
+                                session_id=getattr(agent, "session_id", None),
+                                exc=exc,
+                            ) from exc
+                        raise
                     split_status = "in_place_committed"
                     # Post-commit contract (#98450, mirrors
                     # _sync_micro_compact_to_db): archive_and_compact just
@@ -5097,12 +5141,39 @@ def compress_context(
                         # behavior (no tail preservation this rotation).
                         _foreign_tail_ceiling = None
                     try:
-                        agent._flush_messages_to_session_db(
+                        _rotation_flush_ok = agent._flush_messages_to_session_db(
                             messages,
                             conversation_history=persisted_history,
                         )
-                    except Exception:
+                    except Exception as exc:
+                        if persistence_required:
+                            from agent.persistence import (
+                                persistence_error_from_exception,
+                            )
+
+                            raise persistence_error_from_exception(
+                                operation="transcript flush",
+                                stage="compression rotation-boundary",
+                                session_id=getattr(agent, "session_id", None),
+                                exc=exc,
+                            ) from exc
                         pass  # best-effort — don't block compression on a flush error
+                    else:
+                        if persistence_required and _rotation_flush_ok is not True:
+                            from agent.persistence import (
+                                SessionPersistenceError,
+                                persistence_error,
+                            )
+
+                            error = getattr(agent, "_last_persistence_error", None)
+                            if not isinstance(error, SessionPersistenceError):
+                                error = persistence_error(
+                                    operation="transcript flush",
+                                    stage="compression rotation-boundary",
+                                    session_id=getattr(agent, "session_id", None),
+                                    kind="write_failed",
+                                )
+                            raise error
                     # Publish parent closure + child row + compacted handoff in
                     # one transaction. No reader can observe a missing/empty child.
                     # The rotation child must stay on the parent's profile —
@@ -5124,28 +5195,42 @@ def compress_context(
                         f"{uuid.uuid4().hex[:6]}"
                     )
                     from agent.context_compressor import _DB_PERSISTED_MARKER
-                    agent._session_db.publish_compression_child(
-                        parent_session_id=old_session_id,
-                        child_session_id=new_session_id,
-                        source=agent.platform
-                        or os.environ.get("HERMES_SESSION_SOURCE", "cli"),
-                        model=agent.model,
-                        model_config=agent._session_init_model_config,
-                        system_prompt=new_system_prompt,
-                        messages=compressed,
-                        cwd=getattr(agent, "working_directory", None),
-                        profile_name=_profile_for_child,
-                        compression_lock_holder=_lock_holder,
-                        require_compression_lease=_lock_holder is not None,
-                        require_lease_refresh=_lock_holder is not None,
-                        lease_ttl_seconds=_lock_ttl,
-                        watermark=(
-                            _commit_watermark
-                            if _foreign_tail_ceiling is not None
-                            else None
-                        ),
-                        watermark_ceiling=_foreign_tail_ceiling,
-                    )
+                    try:
+                        agent._session_db.publish_compression_child(
+                            parent_session_id=old_session_id,
+                            child_session_id=new_session_id,
+                            source=agent.platform
+                            or os.environ.get("HERMES_SESSION_SOURCE", "cli"),
+                            model=agent.model,
+                            model_config=agent._session_init_model_config,
+                            system_prompt=new_system_prompt,
+                            messages=compressed,
+                            cwd=getattr(agent, "working_directory", None),
+                            profile_name=_profile_for_child,
+                            compression_lock_holder=_lock_holder,
+                            require_compression_lease=_lock_holder is not None,
+                            require_lease_refresh=_lock_holder is not None,
+                            lease_ttl_seconds=_lock_ttl,
+                            watermark=(
+                                _commit_watermark
+                                if _foreign_tail_ceiling is not None
+                                else None
+                            ),
+                            watermark_ceiling=_foreign_tail_ceiling,
+                        )
+                    except Exception as exc:
+                        if persistence_required:
+                            from agent.persistence import (
+                                persistence_error_from_exception,
+                            )
+
+                            raise persistence_error_from_exception(
+                                operation="transcript compression",
+                                stage="rotation child commit",
+                                session_id=getattr(agent, "session_id", None),
+                                exc=exc,
+                            ) from exc
+                        raise
                     # For the `already_present` outcome the live-dict stamping is
                     # handled by the run_agent _compress_context wrapper's
                     # _sync_persisted_markers (it mirrors the handoff stamps back
@@ -5354,9 +5439,23 @@ def compress_context(
                 # In-place mode still updates/replaces the current row here.
                 # Rotation already published prompt + compacted handoff atomically.
                 if in_place:
-                    agent._session_db.update_system_prompt(
-                        agent.session_id, new_system_prompt
-                    )
+                    try:
+                        agent._session_db.update_system_prompt(
+                            agent.session_id, new_system_prompt
+                        )
+                    except Exception as exc:
+                        if persistence_required:
+                            from agent.persistence import (
+                                persistence_error_from_exception,
+                            )
+
+                            raise persistence_error_from_exception(
+                                operation="transcript compression",
+                                stage="in-place prompt update",
+                                session_id=getattr(agent, "session_id", None),
+                                exc=exc,
+                            ) from exc
+                        raise
                     agent._last_flushed_db_idx = 0
                 else:
                     agent._last_flushed_db_idx = len(compressed)
@@ -5477,6 +5576,11 @@ def compress_context(
                         "could not record split-failure cooldown",
                         exc_info=True,
                     )
+                if persistence_required:
+                    from agent.persistence import SessionPersistenceError
+
+                    if isinstance(e, SessionPersistenceError):
+                        raise
 
         # Compaction-boundary bookkeeping, computed once. `old_session_id` is only
         # bound in the rotation branch; in-place leaves it unset. `_boundary_parent`

@@ -928,17 +928,44 @@ def build_turn_context(
     # once with its final api_content — both steps take the same per-agent
     # persist lock as CLI close persistence.
     persist_lock = getattr(agent, "_session_persist_lock", None)
+    persistence_required = bool(
+        getattr(agent, "_persistence_required", False)
+        and not getattr(agent, "_persist_disabled", False)
+    )
     try:
+        def _ensure_row_for_turn() -> None:
+            if persistence_required:
+                agent._ensure_db_session(required=True)
+            else:
+                # Keep the existing test/helper-agent contract: many small
+                # internal doubles expose the legacy zero-argument method.
+                agent._ensure_db_session()
+
         if persist_lock is None:
-            agent._ensure_db_session()
+            _ensure_row_for_turn()
         else:
             with persist_lock:
-                agent._ensure_db_session()
-    except Exception:
+                _ensure_row_for_turn()
+    except Exception as exc:
+        from agent.persistence import (
+            SessionPersistenceError,
+            persistence_error_from_exception,
+        )
+
+        error = (
+            exc
+            if isinstance(exc, SessionPersistenceError)
+            else persistence_error_from_exception(
+                operation="session row",
+                stage="turn setup",
+                session_id=getattr(agent, "session_id", None),
+                exc=exc,
+            )
+        )
+        if persistence_required:
+            raise error
         logger.warning(
-            "Turn-start session row creation failed for session=%s",
-            agent.session_id or "none",
-            exc_info=True,
+            "Turn-start session row creation failed: %s", error.diagnostic()
         )
     finally:
         # Clear the staged CLI input eagerly (as the pre-refactor code did)
@@ -1669,6 +1696,14 @@ def build_turn_context(
     # critical section as CLI close persistence, and retry the row create if
     # the pre-compression attempt above failed transiently.
     def _ensure_and_persist() -> None:
+        if persistence_required:
+            agent._ensure_db_session(required=True)
+            agent._persist_session(
+                messages,
+                conversation_history,
+                require_persistence=True,
+            )
+            return
         agent._ensure_db_session()
         agent._persist_session(messages, conversation_history)
 
@@ -1678,11 +1713,27 @@ def build_turn_context(
         else:
             with persist_lock:
                 _ensure_and_persist()
-    except Exception:
+    except Exception as exc:
+        from agent.persistence import (
+            SessionPersistenceError,
+            persistence_error_from_exception,
+        )
+
+        error = (
+            exc
+            if isinstance(exc, SessionPersistenceError)
+            else persistence_error_from_exception(
+                operation="transcript flush",
+                stage="turn start",
+                session_id=getattr(agent, "session_id", None),
+                exc=exc,
+            )
+        )
+        if persistence_required:
+            raise error
         logger.warning(
-            "Early turn-start session persistence failed for session=%s",
-            agent.session_id or "none",
-            exc_info=True,
+            "Early turn-start session persistence failed: %s",
+            error.diagnostic(),
         )
     finally:
         # Keep an unmarked staged input available to a later close retry if the

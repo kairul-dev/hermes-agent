@@ -222,7 +222,14 @@ def _flush_session_db_after_tool_progress(
     transcript survives destructive-but-valid tool calls.
     """
     try:
-        persisted = agent._flush_messages_to_session_db(messages) is not False
+        persisted_result = agent._flush_messages_to_session_db(messages)
+        required = bool(
+            getattr(agent, "_persistence_required", False)
+            and not getattr(agent, "_persist_disabled", False)
+        )
+        persisted = persisted_result is True or (
+            persisted_result is None and not required
+        )
         if not persisted:
             agent._incremental_persistence_failed = True
             # The flush caught its own exception and returned False; the
@@ -233,9 +240,21 @@ def _flush_session_db_after_tool_progress(
         return persisted
     except Exception as exc:
         agent._incremental_persistence_failed = True
-        from hermes_state import classify_persistence_error
-        agent._last_persistence_error_cause = classify_persistence_error(exc)
-        logger.warning("Incremental tool-call persistence failed after %s: %s", stage, exc)
+        from agent.persistence import persistence_error_from_exception
+
+        error = persistence_error_from_exception(
+            operation="transcript flush",
+            stage=f"after {stage}",
+            session_id=getattr(agent, "session_id", None),
+            exc=exc,
+        )
+        if hasattr(agent, "_remember_persistence_error"):
+            agent._remember_persistence_error(error)
+        else:
+            agent._last_persistence_error_cause = error.kind
+        logger.warning(
+            "Incremental tool-call persistence failed: %s", error.diagnostic()
+        )
         return False
 
 
