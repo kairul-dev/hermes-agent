@@ -243,6 +243,33 @@ def test_incremental_failure_blocks_subsequent_tool_execution(tmp_path):
         db.close()
 
 
+def test_active_redirect_persistence_failure_blocks_next_provider(tmp_path):
+    db = SessionDB(db_path=tmp_path / "redirect.db")
+    try:
+        agent = _agent(tmp_path, db, "gate-redirect")
+        agent._pending_redirect = "persist this correction before continuing"
+        agent.client.chat.completions.create.return_value = _response("must not run")
+        original_flush = agent._flush_messages_to_session_db
+        calls = {"count": 0}
+
+        def fail_redirect_flush(messages, conversation_history=None):
+            calls["count"] += 1
+            if calls["count"] >= 3:
+                return False
+            return original_flush(messages, conversation_history)
+
+        agent._flush_messages_to_session_db = fail_redirect_flush
+        result = agent.run_conversation("original prompt")
+
+        assert calls["count"] >= 3
+        assert agent.client.chat.completions.create.call_count == 0
+        assert result["failed"] is True
+        assert result["turn_exit_reason"] == "session_persistence_failed"
+        assert result["failure_reason"].startswith("session_persistence_failed:")
+    finally:
+        db.close()
+
+
 def test_noop_incremental_append_is_rejected_before_provider(tmp_path):
     real_db = SessionDB(db_path=tmp_path / "noop-append.db")
 

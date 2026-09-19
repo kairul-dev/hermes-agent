@@ -2322,7 +2322,33 @@ def run_conversation(
                     f"{original_user_message}\n\n"
                     f"User correction during the turn: {_redirect_text}"
                 )
-            agent._persist_session(messages, conversation_history)
+            try:
+                agent._persist_session(
+                    messages,
+                    conversation_history,
+                    require_persistence=persistence_required,
+                )
+            except Exception as exc:
+                if persistence_required:
+                    from agent.persistence import persistence_error_from_exception
+
+                    error = (
+                        exc
+                        if isinstance(exc, SessionPersistenceError)
+                        else persistence_error_from_exception(
+                            operation="transcript flush",
+                            stage="active-turn redirect",
+                            session_id=getattr(agent, "session_id", None),
+                            exc=exc,
+                        )
+                    )
+                    if hasattr(agent, "_remember_persistence_error"):
+                        agent._remember_persistence_error(error)
+                    _turn_exit_reason = "session_persistence_failed"
+                    final_response = ""
+                    failed = True
+                    break
+                raise
 
         # Reset per-turn checkpoint dedup so each iteration can take one snapshot
         agent._checkpoint_mgr.new_turn()
