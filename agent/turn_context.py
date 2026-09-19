@@ -976,6 +976,46 @@ def build_turn_context(
         if not isinstance(pending_cli_message, dict) or pending_cli_message.get("_db_persisted"):
             agent._pending_cli_user_message = None
 
+    # Crash-resilience: persist the inbound user turn immediately after the
+    # verified session-row gate. This must precede idle/preflight compression
+    # (which may invoke an auxiliary model), lifecycle hooks, memory prefetch,
+    # and the primary provider/tool loop. The later flush may add compression
+    # output and update the API sidecar once its final bytes are known.
+    initial_user_persisted = False
+    if persistence_required:
+        try:
+            def _persist_initial_user_turn() -> None:
+                agent._ensure_db_session(required=True)
+                agent._persist_session(
+                    messages,
+                    conversation_history,
+                    require_persistence=True,
+                )
+
+            if persist_lock is None:
+                _persist_initial_user_turn()
+            else:
+                with persist_lock:
+                    _persist_initial_user_turn()
+            initial_user_persisted = True
+        except Exception as exc:
+            from agent.persistence import (
+                SessionPersistenceError,
+                persistence_error_from_exception,
+            )
+
+            error = (
+                exc
+                if isinstance(exc, SessionPersistenceError)
+                else persistence_error_from_exception(
+                    operation="transcript flush",
+                    stage="turn start",
+                    session_id=getattr(agent, "session_id", None),
+                    exc=exc,
+                )
+            )
+            raise error
+
     # A Kanban worker may not begin preflight, model, or tool work until the
     # session row above exists and the active claim has CAS-bound that identity
     # onto its run. Binding failures deliberately propagate so stale or
@@ -1649,6 +1689,7 @@ def build_turn_context(
     # copy AFTER this composition, so the stamped bytes would never match the
     # wire either — skip the stamp rather than persist provably wrong "exact
     # sent bytes" (MoA keeps its pre-sidecar cache behavior).
+    api_content_to_backfill = None
     if (
         not moa_active
         and getattr(agent, "api_mode", None) != "codex_app_server"
@@ -1661,6 +1702,14 @@ def build_turn_context(
         )
         if _api_content is not None and _api_content != _turn_user_msg.get("content"):
             _turn_user_msg["api_content"] = _api_content
+            api_content_to_backfill = (
+                (
+                    persist_user_message
+                    if persist_user_message is not None
+                    else _turn_user_msg.get("content")
+                ),
+                _api_content,
+            )
             # In-place preflight compaction has ALREADY inserted this turn's
             # user row (archive_and_compact runs before prefetch/pre_llm_call
             # can compose the sidecar), and the crash persist below identity-
@@ -1677,7 +1726,11 @@ def build_turn_context(
                     try:
                         _db.set_latest_user_api_content(
                             agent.session_id,
-                            _turn_user_msg.get("content"),
+                            (
+                                persist_user_message
+                                if persist_user_message is not None
+                                else _turn_user_msg.get("content")
+                            ),
                             _api_content,
                         )
                     except Exception:
@@ -1688,13 +1741,9 @@ def build_turn_context(
                             exc_info=True,
                         )
 
-    # Crash-resilience: persist the inbound user turn before the first LLM
-    # call. Runs after preflight compression (which rewrites history anyway)
-    # and after prefetch/pre_llm_call, so the user row is written once with
-    # its final api_content instead of being re-written mid-turn.
-    # Keep row creation and the marker-based append in the same per-agent
-    # critical section as CLI close persistence, and retry the row create if
-    # the pre-compression attempt above failed transiently.
+    # Finalize the turn-start checkpoint after preflight/hook/memory work. This
+    # flush adds any rebuilt compression rows and verifies the API sidecar
+    # against the row that was written before those paths ran.
     def _ensure_and_persist() -> None:
         if persistence_required:
             agent._ensure_db_session(required=True)
@@ -1703,6 +1752,32 @@ def build_turn_context(
                 conversation_history,
                 require_persistence=True,
             )
+            if initial_user_persisted and api_content_to_backfill is not None:
+                _db = getattr(agent, "_session_db", None)
+                updater = getattr(_db, "set_latest_user_api_content", None)
+                if not callable(updater):
+                    from agent.persistence import persistence_error
+
+                    raise persistence_error(
+                        operation="transcript sidecar",
+                        stage="turn start",
+                        session_id=getattr(agent, "session_id", None),
+                        kind="no_op",
+                    )
+                updated = updater(
+                    agent.session_id,
+                    api_content_to_backfill[0],
+                    api_content_to_backfill[1],
+                )
+                if updated != 1:
+                    from agent.persistence import persistence_error
+
+                    raise persistence_error(
+                        operation="transcript sidecar",
+                        stage="turn start",
+                        session_id=getattr(agent, "session_id", None),
+                        kind="no_op",
+                    )
             return
         agent._ensure_db_session()
         agent._persist_session(messages, conversation_history)

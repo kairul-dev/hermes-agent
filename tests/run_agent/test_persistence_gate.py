@@ -176,6 +176,37 @@ def test_successful_first_turn_resume_and_reopen_do_not_duplicate(tmp_path):
         reopened.close()
 
 
+def test_initial_user_row_is_durable_before_preflight_compression(tmp_path):
+    db = SessionDB(db_path=tmp_path / "preflight-order.db")
+    try:
+        agent = _agent(tmp_path, db, "gate-preflight-order")
+        agent.compression_enabled = True
+        agent.context_compressor.should_compress = MagicMock(return_value=True)
+        agent.max_compression_attempts = 1
+
+        def observe_compression(messages, system_message, **_kwargs):
+            durable = db.get_messages_as_conversation("gate-preflight-order")
+            assert [(row["role"], row["content"]) for row in durable] == [
+                ("user", "persist before compression")
+            ]
+            return messages, system_message
+
+        agent._compress_context = observe_compression
+        agent.client.chat.completions.create.return_value = _response("compressed safely")
+
+        with (
+            patch("agent.turn_context._should_run_preflight_estimate", return_value=True),
+            patch("agent.turn_context._preflight_request_tokens", return_value=999),
+            patch.object(agent, "_save_trajectory"),
+            patch.object(agent, "_cleanup_task_resources"),
+        ):
+            result = agent.run_conversation("persist before compression")
+
+        assert result["final_response"] == "compressed safely"
+    finally:
+        db.close()
+
+
 def test_incremental_failure_blocks_subsequent_tool_execution(tmp_path):
     db = SessionDB(db_path=tmp_path / "incremental.db")
     try:
@@ -192,14 +223,14 @@ def test_incremental_failure_blocks_subsequent_tool_execution(tmp_path):
 
         def fail_after_initial_flush(messages, conversation_history=None):
             calls["count"] += 1
-            if calls["count"] >= 2:
+            if calls["count"] >= 3:
                 return False
             return original_flush(messages, conversation_history)
 
         agent._flush_messages_to_session_db = fail_after_initial_flush
         result = agent.run_conversation("search, but only after the write")
 
-        assert calls["count"] >= 2
+        assert calls["count"] >= 3
         assert agent.client.chat.completions.create.call_count == 1
         executed.assert_not_called()
         assert result["failed"] is True
