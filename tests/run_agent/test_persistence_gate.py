@@ -232,6 +232,7 @@ def test_incremental_failure_blocks_subsequent_tool_execution(tmp_path):
 
         assert calls["count"] >= 3
         assert agent.client.chat.completions.create.call_count == 1
+        assert "No model or tool work was started" not in result["error"]
         executed.assert_not_called()
         assert result["failed"] is True
         assert result["turn_exit_reason"] == "session_persistence_failed"
@@ -486,3 +487,46 @@ def test_browser_request_surfaces_persistence_error_without_provider(monkeypatch
     assert "row was not created" in response["error"]["message"]
     assert response["error"]["data"]["persistence"]["kind"] == "no_op"
     fake_agent.run_conversation.assert_not_called()
+
+
+def test_required_branch_seed_retry_is_atomic(monkeypatch, tmp_path):
+    from tui_gateway import server
+
+    db = SessionDB(db_path=tmp_path / 'atomic-branch.db')
+    try:
+        db.create_session('parent', source='tui')
+        db.create_session('child', source='tui', parent_session_id='parent')
+        history = [{'role': 'user' if i % 2 == 0 else 'assistant',
+                    'content': f'seed-{i}'} for i in range(502)]
+        session = {'session_key': 'child', 'parent_session_id': 'parent',
+                   'history': history, 'history_lock': threading.RLock()}
+        monkeypatch.setattr(server, '_get_db', lambda: db)
+        with sqlite3.connect(tmp_path / 'atomic-branch.db') as conn:
+            conn.execute("CREATE TRIGGER reject_late_seed BEFORE INSERT ON messages "
+                         "WHEN NEW.content = 'seed-500' BEGIN "
+                         "SELECT RAISE(ABORT, 'injected late seed failure'); END")
+        with pytest.raises(SessionPersistenceError):
+            server._persist_branch_seed(session, required=True)
+        assert not session.get('_branch_seed_persisted')
+        assert db.get_messages_as_conversation('child') == []
+        with sqlite3.connect(tmp_path / 'atomic-branch.db') as conn:
+            conn.execute('DROP TRIGGER reject_late_seed')
+        server._persist_branch_seed(session, required=True)
+        server._persist_branch_seed(session, required=True)
+        assert [(m['role'], m['content']) for m in db.get_messages_as_conversation('child')] == [
+            (m['role'], m['content']) for m in history]
+        db.close()
+        db = SessionDB(db_path=tmp_path / 'atomic-branch.db')
+        assert [(m['role'], m['content']) for m in db.get_messages_as_conversation('child')] == [
+            (m['role'], m['content']) for m in history]
+    finally:
+        db.close()
+
+
+def test_late_persistence_error_does_not_claim_execution_never_started():
+    error = persistence_error_from_exception(
+        operation='transcript', stage='final', session_id='late-failure',
+        exc=sqlite3.OperationalError('database is locked; secret=hidden'))
+    assert 'No model or tool work was started' not in error.user_message
+    assert 'retry after' not in error.user_message
+    assert 'secret' not in error.user_message

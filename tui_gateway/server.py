@@ -4380,11 +4380,9 @@ def _persist_branch_seed(session: dict, *, required: bool = False) -> None:
                 )
             return
         try:
-            # Bounded-chunk transactions (see #23254): a branch seed can be
-            # hundreds of rows; chunking keeps each BEGIN IMMEDIATE short so
-            # concurrent writers aren't starved. Recovery semantics match the
-            # old per-row loop (mid-copy failure leaves a partial seed with
-            # _branch_seed_persisted unset).
+            # Required seeds must commit atomically: a failed partial copy
+            # leaves the completion marker unset and would duplicate rows on
+            # retry. Keep bounded chunks only for legacy best-effort callers.
             inserted = db.append_messages_batch(
                 key,
                 [
@@ -4410,7 +4408,7 @@ def _persist_branch_seed(session: dict, *, required: bool = False) -> None:
                     }
                     for msg in seed
                 ],
-                chunk_rows=500,
+                chunk_rows=None if required else 500,
             )
             if required and inserted != len(seed):
                 raise persistence_error(

@@ -102,7 +102,7 @@ class SessionPersistenceError(RuntimeError):
         super().__init__(
             f"Session persistence failed during {self.operation}/{self.stage} "
             f"for session {self.session_identity}: {guidance}. "
-            "No model or tool work was started; retry after correcting storage."
+            "The turn cannot continue. Check storage and any prior tool effects before retrying."
         )
 
     @property
