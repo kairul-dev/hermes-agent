@@ -15221,6 +15221,31 @@ def _(rid, params: dict) -> dict:
             parsed = parse_reasoning_effort(arg)
             if parsed is None:
                 return _err(rid, 4002, f"unknown reasoning value: {value}")
+            # Fail closed on a session-targeted change. ``session`` is None both
+            # when the caller asked for the profile value (no session_id at all —
+            # the intentional global path below) and when the caller NAMED a
+            # session that is no longer live: deleted, idle-reaped, LRU-evicted,
+            # or a stale id held by a client whose gateway restarted. The second
+            # case used to fall through to the global write, so a pick made in a
+            # conversation that had just gone away silently rewrote
+            # agent.reasoning_effort for every other session, profile, CLI and
+            # gateway build. Reject instead of guessing; an explicit
+            # ``scope: "global"`` still means the caller asked for the profile
+            # value and is left alone.
+            requested_session = str(params.get("session_id") or "").strip()
+            if (
+                session is None
+                and not global_scope
+                and (requested_session or scope == "session")
+            ):
+                return _err(
+                    rid,
+                    4001,
+                    "reasoning was not changed: session "
+                    f"{requested_session or '(none)'} is not live in this gateway "
+                    "and the profile default was left untouched (omit session_id "
+                    "to change agent.reasoning_effort for the profile)",
+                )
             if global_scope or session is None:
                 _write_config_key("agent.reasoning_effort", arg)
                 if session is not None:
