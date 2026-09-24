@@ -49,6 +49,10 @@ def _is_glm_5_2_model(model: str | None) -> bool:
     return any(token in m for token in ("glm-5.2", "glm-5-2", "glm-5p2"))
 
 
+#: The one Zen-endpoint model with a reasoning-effort dial (stealth preview).
+_OX_ALPHA_MODEL_ID = "x-preview-f-free"
+
+
 class OpenCodeGoProfile(ProviderProfile):
     """OpenCode Go - model-specific reasoning controls."""
 
@@ -66,6 +70,38 @@ class OpenCodeGoProfile(ProviderProfile):
         if cap is not None:
             return cap
         return self.default_max_tokens
+
+    def supported_reasoning_efforts(self, model: str | None) -> tuple[str, ...]:
+        """Per-model vocabulary for the routes this relay serves.
+
+        GLM-5.2 takes high/max, Kimi K2 takes low/medium/high, DeepSeek
+        thinking models take low/medium/high/max — the same sets
+        ``build_api_kwargs_extras`` clamps onto below. Everything else on the
+        Go relay gets no reasoning field at all.
+        """
+        from agent.reasoning_effort import (
+            DEEPSEEK_V4_EFFORTS,
+            GLM52_EFFORTS,
+            KIMI_K2_EFFORTS,
+        )
+
+        if _is_glm_5_2_model(model):
+            return GLM52_EFFORTS
+        if _is_kimi_k2_model(model):
+            return KIMI_K2_EFFORTS
+        if _is_deepseek_thinking_model(model):
+            return DEEPSEEK_V4_EFFORTS
+        return ()
+
+    def reasoning_effort_overrides(self, model: str | None) -> dict[str, str] | None:
+        """Declared translations for the same per-model vocabularies."""
+        from agent.reasoning_effort import DEEPSEEK_V4_OVERRIDES, GLM52_OVERRIDES
+
+        if _is_glm_5_2_model(model):
+            return GLM52_OVERRIDES
+        if _is_deepseek_thinking_model(model) and not _is_kimi_k2_model(model):
+            return DEEPSEEK_V4_OVERRIDES
+        return None
 
     def build_api_kwargs_extras(
         self, *, reasoning_config: dict | None = None, model: str | None = None, **context
@@ -167,7 +203,7 @@ def _build_ox_alpha_reasoning_extras(
     profile — the model is reachable through either provider and the wire
     contract is identical (low/high/max only; anything else 400s).
     """
-    if _flat_model_name(model) != "x-preview-f-free":
+    if _flat_model_name(model) != _OX_ALPHA_MODEL_ID:
         return {}, {}
     if not isinstance(reasoning_config, dict):
         return {}, {}
@@ -192,6 +228,28 @@ def _build_ox_alpha_reasoning_extras(
 
 class OpenCodeZenProfile(ProviderProfile):
     """OpenCode Zen - model-specific reasoning controls."""
+
+    def supported_reasoning_efforts(self, model: str | None) -> tuple[str, ...]:
+        """Ox Alpha is the only model on this endpoint with an effort dial.
+
+        Its wire accepts exactly low/high/max (``OX_ALPHA_EFFORTS``); thinking
+        is always on there, so the levels are the only control. Every other
+        model this endpoint serves takes no reasoning parameter — the profile
+        sends none.
+        """
+        from agent.reasoning_effort import OX_ALPHA_EFFORTS
+
+        if _flat_model_name(model) != OX_ALPHA_MODEL_ID:
+            return ()
+        return OX_ALPHA_EFFORTS
+
+    def reasoning_effort_overrides(self, model: str | None) -> dict[str, str] | None:
+        """``xhigh`` rounds up to Ox Alpha's top tier (``max``)."""
+        from agent.reasoning_effort import OX_ALPHA_OVERRIDES
+
+        if _flat_model_name(model) != OX_ALPHA_MODEL_ID:
+            return None
+        return OX_ALPHA_OVERRIDES
 
     def build_api_kwargs_extras(
         self, *, reasoning_config: dict | None = None, model: str | None = None, **context

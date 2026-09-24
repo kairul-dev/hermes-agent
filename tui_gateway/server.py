@@ -6152,6 +6152,100 @@ def _load_reasoning_config(model: str = "") -> dict | None:
     return resolve_reasoning_config(_load_cfg(), model)
 
 
+def _session_reasoning_route(session: dict | None) -> dict:
+    """The provider/model/wire identity a session's reasoning runs on.
+
+    A built agent owns the live route; a session whose agent is still being
+    built (or has not been built yet) carries the composer's own pick in
+    ``model_override``. Whatever neither answers falls back to the profile's
+    configured model — the same order the agent build itself resolves in.
+
+    ``api_mode``/``base_url`` travel with it because they select the wire's
+    effort vocabulary: the same model slug takes a different ladder on the
+    Responses wire than on the OpenAI-compatible one.
+    """
+    route: dict = {"model": "", "provider": "", "api_mode": "", "base_url": ""}
+    session = session if isinstance(session, dict) else {}
+    agent = session.get("agent")
+    if agent is not None:
+        for key, attr in (
+            ("model", "model"),
+            ("provider", "provider"),
+            ("api_mode", "api_mode"),
+            ("base_url", "base_url"),
+        ):
+            route[key] = str(getattr(agent, attr, "") or "")
+    override = session.get("model_override")
+    if isinstance(override, dict):
+        for key in ("model", "provider", "api_mode", "base_url"):
+            if not route.get(key):
+                route[key] = str(override.get(key) or "")
+    try:
+        model_cfg = _load_cfg().get("model") or {}
+    except Exception:
+        model_cfg = {}
+    if not isinstance(model_cfg, dict):
+        model_cfg = {}
+    for key, cfg_key in (
+        ("model", "default"),
+        ("provider", "provider"),
+        ("base_url", "base_url"),
+    ):
+        if not route.get(key):
+            route[key] = str(model_cfg.get(cfg_key) or "")
+    return route
+
+
+def _reasoning_capability(session: dict | None, effort: str = "") -> dict:
+    """Hermes' authoritative reasoning capability for a session's route.
+
+    Reported next to ``value`` by ``config.get key=reasoning`` so a client can
+    render the real levels for THIS conversation without keeping its own
+    provider/model compatibility table:
+
+    - ``supported``: a reasoning control exists for the route (either the
+      graded levels below, or a model that reasons but only on/off);
+    - ``values``: the discrete levels the route can be asked for, ladder
+      ordered, read from the provider profile's declared vocabulary else the
+      transport's vocabulary for its wire;
+    - ``can_disable``: whether an explicit thinking-off is a known-accepted
+      request (``None`` = no catalog says, so no restriction known);
+    - ``effective``: Hermes' own translation of the session's current value
+      onto ``values`` — the level that will reach the wire. Equal to ``value``
+      whenever the pick is already supported.
+
+    Nothing here is derived from the model's *name*: both halves come from the
+    same declarations the request path clamps onto.
+    """
+    from agent.reasoning_effort import reasoning_capability
+
+    route = _session_reasoning_route(session)
+    requested = "" if str(effort or "").strip().lower() == "none" else effort
+    capability = reasoning_capability(
+        provider=route.get("provider") or None,
+        model=route.get("model") or None,
+        api_mode=route.get("api_mode") or None,
+        base_url=route.get("base_url") or None,
+        effort=requested,
+    )
+    if not capability["values"]:
+        # No graded dial declared. The model may still reason on/off (a
+        # capable-but-uncatalogued model, or a toggle-only route), which the
+        # capability maps answer from the model catalogs — reuse that verdict
+        # so a picker and a live conversation cannot disagree.
+        try:
+            from hermes_cli.inventory import model_reasoning_supported
+
+            capability["supported"] = bool(
+                model_reasoning_supported(route.get("provider") or "", route.get("model") or "")[0]
+            )
+        except Exception:
+            capability["supported"] = False
+    if not capability["supported"]:
+        capability["can_disable"] = False
+    return capability
+
+
 def _load_service_tier() -> str | None:
     raw = (
         str((_load_cfg().get("agent") or {}).get("service_tier", "") or "")

@@ -413,6 +413,31 @@ def _accepts_thinking_disable(model: str) -> bool:
     return not any(v in m for v in _MANDATORY_THINKING_CLAUDE_SUBSTRINGS)
 
 
+def adaptive_effort_levels(model: str) -> tuple[str, ...]:
+    """Effort levels the Anthropic adaptive-thinking wire accepts for *model*.
+
+    The read side of the same rules the request path applies
+    (:data:`ADAPTIVE_EFFORT_MAP`, :func:`_supports_xhigh_effort`): adaptive
+    models take low/medium/high/max, and 4.7+ (plus the Kimi/Moonshot
+    Anthropic-compatible endpoints) also take ``xhigh``. Legacy
+    manual-thinking Claude families are budget-based rather than level-based,
+    so their dial is the fixed low/medium/high/xhigh budget ladder — the
+    levels :data:`THINKING_BUDGET` names.
+
+    Returns a low→high ordered tuple; never empty (a Claude-family model
+    always has a thinking dial on this route).
+    """
+    levels = ["low", "medium", "high"]
+    if _supports_adaptive_thinking(model):
+        if _supports_xhigh_effort(model):
+            levels.append("xhigh")
+        levels.append("max")
+        return tuple(levels)
+    # Legacy manual-thinking models: budget_tokens ladder, no wire `max`.
+    levels.append("xhigh")
+    return tuple(levels)
+
+
 def _forbids_sampling_params(model: str) -> bool:
     """Return True for models that 400 on any non-default temperature/top_p/top_k.
 

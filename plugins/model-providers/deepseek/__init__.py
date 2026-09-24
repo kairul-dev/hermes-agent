@@ -49,6 +49,27 @@ def _model_supports_thinking(model: str | None) -> bool:
 class DeepSeekProfile(ProviderProfile):
     """DeepSeek — extra_body.thinking + top-level reasoning_effort."""
 
+    def supported_reasoning_efforts(self, model: str | None) -> tuple[str, ...]:
+        """V4+ takes low/medium/high/max; V3 takes no reasoning parameter.
+
+        Same gate the request path applies (``_model_supports_thinking``), so
+        a picker offering these levels is offering exactly what this profile
+        will put on the wire — and a V3 slug offers none.
+        """
+        if not _model_supports_thinking(model):
+            return ()
+        from agent.reasoning_effort import DEEPSEEK_V4_EFFORTS
+
+        return DEEPSEEK_V4_EFFORTS
+
+    def reasoning_effort_overrides(self, model: str | None) -> dict[str, str] | None:
+        """``xhigh`` requests DeepSeek's top tier (``max``)."""
+        if not _model_supports_thinking(model):
+            return None
+        from agent.reasoning_effort import DEEPSEEK_V4_OVERRIDES
+
+        return DEEPSEEK_V4_OVERRIDES
+
     def build_api_kwargs_extras(
         self, *, reasoning_config: dict | None = None, model: str | None = None, **context
     ) -> tuple[dict[str, Any], dict[str, Any]]:

@@ -37,6 +37,28 @@ def _is_confirmed_kimi_coding_url(base_url: str) -> bool:
 class KimiProfile(ProviderProfile):
     """Kimi/Moonshot — temperature omitted, thinking xor reasoning_effort."""
 
+    def supported_reasoning_efforts(self, model: str | None) -> tuple[str, ...]:
+        """K3 takes low/high/max; K2-era slugs take low/medium/high.
+
+        Shares ``kimi_supported_efforts`` with the chat-completions transport's
+        Kimi path and the K3 vocabulary this profile clamps onto.
+        """
+        from agent.reasoning_effort import kimi_supported_efforts
+
+        return kimi_supported_efforts(model)
+
+    def reasoning_effort_overrides(self, model: str | None) -> dict[str, str] | None:
+        """K3 documents ``medium → high`` (its positional middle) and ``xhigh → max``."""
+        from agent.reasoning_effort import (
+            KIMI_K3_EFFORTS,
+            KIMI_K3_OVERRIDES,
+            kimi_supported_efforts,
+        )
+
+        if kimi_supported_efforts(model) == KIMI_K3_EFFORTS:
+            return KIMI_K3_OVERRIDES
+        return None
+
     def fetch_models(
         self,
         *,

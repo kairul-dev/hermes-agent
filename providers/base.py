@@ -234,6 +234,24 @@ class ProviderProfile:
         """
         return None
 
+    def reasoning_effort_overrides(
+        self, model: str | None
+    ) -> dict[str, str] | None:
+        """Declared requested→wire level translations for *model*, or ``None``.
+
+        The companion of :meth:`supported_reasoning_efforts`: a profile that
+        declares a narrower vocabulary can also declare that a level outside
+        it means a specific level inside it (Kimi K3 documents
+        ``medium → high``; DeepSeek V4 documents ``xhigh → max``). These are
+        the same mappings the profile's own request path applies, so a client
+        that asks for a capability gets the level that will really be sent
+        instead of a second, hand-rolled translation table.
+
+        Default: ``None`` — no declared translation, so the shared
+        nearest-weaker clamping policy in ``agent.reasoning_effort`` applies.
+        """
+        return None
+
     def create_client(self, **client_kwargs: Any) -> Any | None:
         """Return a provider-specific client, or ``None`` for the standard one.
 
