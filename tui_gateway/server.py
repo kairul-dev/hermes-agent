@@ -7822,7 +7822,18 @@ def _session_info(agent, session: dict | None = None) -> dict:
     )
     cfg_personality = ((_load_cfg().get("display") or {}).get("personality") or "")
     personality = (session or {}).get("personality", cfg_personality)
+    # The session's own pin (a session-scoped `config.set key=reasoning`) is the
+    # authority `config.get` already answers with, and it is what the next turn
+    # runs. The live agent can lag it: a pin set while the deferred agent build
+    # was still in flight is only applied when the agent is built, so the
+    # finished agent keeps reporting the PROFILE effort. Read the pin first so
+    # session.info / session.resume / session.activate cannot contradict
+    # `config.get` — clients that trusted info (desktop, Forge) reverted the
+    # user's pick to the profile value otherwise.
     reasoning_config = getattr(agent, "reasoning_config", None)
+    pin = (session or {}).get("create_reasoning_override")
+    if isinstance(pin, dict):
+        reasoning_config = pin
     reasoning_effort = ""
     if isinstance(reasoning_config, dict):
         if reasoning_config.get("enabled") is False:

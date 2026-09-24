@@ -62,6 +62,50 @@ class TestSessionInfoReasoningEffort:
         info = _session_info(_agent(None))
         assert info["reasoning_effort"] == ""
 
+    def test_live_pin_outranks_a_lagging_agent(self) -> None:
+        """The session's own pin is the authority ``config.get`` already answers
+        with; ``info`` must not contradict it.
+
+        A session-scoped change made while the deferred agent build is in
+        flight lands on ``create_reasoning_override`` and is applied when the
+        agent is built — but an agent that finished building BEFORE the pin
+        exists keeps the PROFILE config until the next build re-applies it.
+        ``_session_info`` read the agent, so session.info / resume / activate
+        reported the profile effort while ``config.get {session_id}`` reported
+        the pin, and clients that trust ``info`` snapped the user's pick back
+        (measured on a live gateway; Forge had to compensate client-side).
+        """
+        info = _session_info(
+            _agent({"enabled": True, "effort": "medium"}),
+            {
+                "session_key": "k-pinned",
+                "create_reasoning_override": {"enabled": True, "effort": "low"},
+            },
+        )
+        assert info["reasoning_effort"] == "low"
+
+    def test_disabled_pin_reports_none_not_the_agent(self) -> None:
+        info = _session_info(
+            _agent({"enabled": True, "effort": "high"}),
+            {"session_key": "k-pinned", "create_reasoning_override": {"enabled": False}},
+        )
+        assert info["reasoning_effort"] == "none"
+
+    def test_agent_value_is_used_when_no_pin_exists(self) -> None:
+        """Control: the pin is an override, not a replacement for the agent."""
+        info = _session_info(
+            _agent({"enabled": True, "effort": "high"}),
+            {"session_key": "k-live"},
+        )
+        assert info["reasoning_effort"] == "high"
+
+    def test_non_dict_pin_falls_back_to_the_agent(self) -> None:
+        info = _session_info(
+            _agent({"enabled": True, "effort": "high"}),
+            {"session_key": "k-live", "create_reasoning_override": None},
+        )
+        assert info["reasoning_effort"] == "high"
+
 
 class TestConfigSetReasoningSessionScope:
     """Session-targeted reasoning changes must not touch global config."""
