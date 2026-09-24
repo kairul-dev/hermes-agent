@@ -22,6 +22,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import yaml
+
 import tui_gateway.server as server
 
 FAST_OVERRIDES = {"service_tier": "priority"}
@@ -124,3 +126,105 @@ class TestConfigGetFastSessionScope:
         with patch.object(server, "_load_service_tier", return_value="priority"):
             resp = _get({"key": "fast"})
         assert resp["result"]["value"] == "fast"
+
+
+class TestStaleSessionFastFailsClosed:
+    """A session-targeted fast change must never rewrite the global tier.
+
+    Sibling of the reasoning guard. ``config.set key=fast`` treated an
+    unresolvable session exactly like an absent one, so the desktop's per-model
+    preset (apps/desktop/src/store/model-presets.ts — the same id it holds for
+    the conversation) and the TUI's ``/fast`` (ui-tui slash commands) rewrote
+    ``agent.service_tier`` for every other session, profile, CLI and gateway
+    build when the live id was stale. These tests read the real config.yaml on
+    disk, so they assert the durable artifact rather than a mocked writer.
+    """
+
+    PROFILE_TIER = "priority"
+
+    def _config_home(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(server, "_hermes_home", tmp_path)
+        cfg_path = tmp_path / "config.yaml"
+        cfg_path.write_text(
+            "model:\n"
+            "  default: gpt-6\n"
+            "  provider: openai\n"
+            "agent:\n"
+            f"  service_tier: {self.PROFILE_TIER}\n",
+            encoding="utf-8",
+        )
+        return cfg_path
+
+    @staticmethod
+    def _profile_tier(cfg_path) -> str:
+        return str(yaml.safe_load(cfg_path.read_text(encoding="utf-8"))["agent"]["service_tier"])
+
+    def test_stale_session_id_rejected_and_profile_tier_untouched(self, tmp_path, monkeypatch):
+        cfg_path = self._config_home(tmp_path, monkeypatch)
+        before = cfg_path.read_bytes()
+
+        resp = _set({"session_id": "no-longer-live", "key": "fast", "value": "normal"})
+
+        assert "error" in resp, "a stale session-targeted fast change must be rejected"
+        assert resp["error"]["code"] == 4001
+        assert "not live" in resp["error"]["message"]
+        assert cfg_path.read_bytes() == before, "agent.service_tier must not be rewritten"
+        assert self._profile_tier(cfg_path) == self.PROFILE_TIER
+
+    def test_stale_session_id_rejected_even_when_the_level_resolves(
+        self, tmp_path, monkeypatch
+    ):
+        """The reject must not depend on the model's fast support."""
+        cfg_path = self._config_home(tmp_path, monkeypatch)
+        before = cfg_path.read_bytes()
+        with patch(
+            "hermes_cli.models.resolve_fast_mode_overrides", return_value=FAST_OVERRIDES
+        ):
+            resp = _set({"session_id": "no-longer-live", "key": "fast", "value": "fast"})
+
+        assert resp["error"]["code"] == 4001
+        assert cfg_path.read_bytes() == before
+
+    def test_deleted_live_session_rejected(self, tmp_path, monkeypatch):
+        """The deletion/race case: the session existed, then went away."""
+        cfg_path = self._config_home(tmp_path, monkeypatch)
+        session = {"session_key": "k-raced", "agent": _agent(), "create_service_tier_override": "priority"}
+        with patch.dict(server._sessions, {"s-raced": session}, clear=False):
+            popped = server._pop_session_by_id("s-raced")
+            assert popped is not None
+            before = cfg_path.read_bytes()
+
+            resp = _set({"session_id": "s-raced", "key": "fast", "value": "normal"})
+
+        assert resp["error"]["code"] == 4001
+        assert cfg_path.read_bytes() == before
+        assert self._profile_tier(cfg_path) == self.PROFILE_TIER
+
+    def test_live_session_change_still_session_scoped(self, tmp_path, monkeypatch):
+        """The fix must not break the case it protects."""
+        cfg_path = self._config_home(tmp_path, monkeypatch)
+        session = {"session_key": "k-live", "agent": _agent()}
+        with patch.dict(server._sessions, {"s-live": session}, clear=False), patch.object(
+            server, "_emit"
+        ):
+            before = cfg_path.read_bytes()
+            resp = _set({"session_id": "s-live", "key": "fast", "value": "normal"})
+
+        assert resp["result"]["value"] == "normal"
+        assert session["create_service_tier_override"] == ""
+        assert cfg_path.read_bytes() == before, "a live session change stays session-scoped"
+
+    def test_no_session_still_persists_globally(self, tmp_path, monkeypatch):
+        """Control: the intentional profile path is preserved AND observable.
+
+        Without this, every "unchanged" assertion above would be vacuous — a
+        guard that simply refused all writes would look identical.
+        """
+        cfg_path = self._config_home(tmp_path, monkeypatch)
+        before = cfg_path.read_bytes()
+
+        resp = _set({"key": "fast", "value": "normal"})
+
+        assert resp["result"]["value"] == "normal"
+        assert cfg_path.read_bytes() != before, "the intentional profile write must land"
+        assert self._profile_tier(cfg_path) == "normal"

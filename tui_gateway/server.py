@@ -14912,6 +14912,27 @@ def _(rid, params: dict) -> dict:
         else:
             return _err(rid, 4002, f"unknown fast mode: {value}")
 
+        # Fail closed on a session-targeted change, exactly like `reasoning`
+        # above. ``session`` is None both when the caller asked for the profile
+        # tier (no session_id at all — the intentional global path below) and
+        # when the caller NAMED a session that is no longer live: deleted,
+        # idle-reaped, LRU-evicted, or a stale id held by a client whose gateway
+        # restarted. The second case used to fall through to the global write,
+        # so the desktop's per-model preset (apps/desktop/src/store/
+        # model-presets.ts) and the TUI's `/fast` rewrote agent.service_tier for
+        # every other session, profile, CLI and gateway build ("switch one
+        # session, switches everywhere"). Reject instead of guessing.
+        requested_session = str(params.get("session_id") or "").strip()
+        if session is None and requested_session:
+            return _err(
+                rid,
+                4001,
+                "fast mode was not changed: session "
+                f"{requested_session} is not live in this gateway and the profile "
+                "default (agent.service_tier) was left untouched (omit session_id "
+                "to change it for the profile)",
+            )
+
         overrides = None
         if nv == "fast":
             from hermes_cli.models import resolve_fast_mode_overrides
@@ -15098,6 +15119,25 @@ def _(rid, params: dict) -> dict:
         #     "manual" (bypass off). This DOES affect every session, the CLI,
         #     the TUI, and cron, and survives restarts.
         scope = str(params.get("scope") or "session").strip().lower()
+        # Fail closed when the caller targeted a session that is gone. The
+        # sessionless branch below arms the PROCESS-wide HERMES_YOLO_MODE flag —
+        # an approval bypass for everything this gateway runs, inherited by its
+        # children — while answering `scope: "session"`. A stale live id (the
+        # desktop's zap / the TUI's Shift+Tab always send the live sid) must not
+        # silently escalate to that: apps/desktop/src/lib/yolo-session.ts
+        # documents the session toggle as not touching global state, the global
+        # affordance is `scope: "global"`, and a sessionless call keeps its
+        # process-flag path.
+        requested_session = str(params.get("session_id") or "").strip()
+        if session is None and requested_session and scope != "global":
+            return _err(
+                rid,
+                4001,
+                "YOLO was not changed: session "
+                f"{requested_session} is not live in this gateway and no process-wide "
+                'approval bypass was armed (pass scope: "global" for the persistent '
+                "global bypass, or omit session_id for the process flag)",
+            )
         try:
             from tools.approval import (
                 disable_session_yolo,
