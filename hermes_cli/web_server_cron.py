@@ -111,6 +111,12 @@ def _cron_default_profile() -> str:
 
 def _cron_profile_home(profile: Optional[str]) -> Tuple[str, Path]:
     """Resolve a profile query value to (profile_name, HERMES_HOME)."""
+    from hermes_cli.dashboard_auth.local_service import CURRENT_SERVICE, ServiceDenied
+    service = CURRENT_SERVICE.get()
+    if service is not None:
+        if profile not in (None, "", "current"):
+            raise ServiceDenied("service cron profile denied")
+        return "current", service.store.path.parent.parent.resolve()
     from hermes_cli import profiles as profiles_mod
     raw = (profile or _cron_default_profile()).strip() or "default"
     try:

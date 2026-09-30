@@ -154,7 +154,13 @@ def _snapshot_sessions(rid):
     """``(list(_sessions.items()), None)`` under the lock, or ``(None, 5036 error)`` — fail CLOSED."""
     try:
         with _sessions_lock:
-            return list(_sessions.items()), None
+            rows = list(_sessions.items())
+        identity = getattr(current_transport(), "service_identity", None)
+        if identity:
+            home = identity.store.path.parent.parent.resolve()
+            rows = [(sid, session) for sid, session in rows
+                    if Path(session.get("profile_home") or get_hermes_home()).resolve() == home]
+        return rows, None
     except Exception as e:
         return None, _err(rid, 5036, f"could not enumerate active sessions: {e}")
 

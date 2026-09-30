@@ -15,6 +15,12 @@ def handle_request(req: dict) -> dict | None:
 
 
 def _handle_admitted_request(req: dict) -> dict | None:
+    from hermes_cli.dashboard_auth.local_service import authorize_rpc, ServiceDenied
+    from tui_gateway.transport import current_transport
+    try:
+        authorize_rpc(current_transport(), req)
+    except ServiceDenied:
+        return _err(req.get("id") if isinstance(req, dict) else None, 4030, "Service RPC authorization denied")
     normalized = _normalize_request(req)
     if isinstance(normalized, dict):
         return normalized
@@ -50,6 +56,11 @@ def dispatch(req: dict, transport: Optional[Transport] = None) -> dict | None:
     t = transport or _stdio_transport
     token = bind_transport(t)
     try:
+        from hermes_cli.dashboard_auth.local_service import authorize_rpc, ServiceDenied
+        try:
+            authorize_rpc(t, req)
+        except ServiceDenied:
+            return _err(req.get("id") if isinstance(req, dict) else None, 4030, "Service RPC authorization denied")
         from tui_gateway import server_requests
         if server_requests.is_response_frame(req):
             # The renderer answering one of OUR requests (clarify, approval, …): no response frame goes back.

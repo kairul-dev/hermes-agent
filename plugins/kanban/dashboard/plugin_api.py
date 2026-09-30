@@ -27,6 +27,7 @@ from fastapi import (
     APIRouter, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect, status as http_status)
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from plugins.kanban.dashboard import service_scope
 
 from hermes_cli import kanban_db
 from hermes_cli.web_read_coalescing import coalesced_read
@@ -122,7 +123,9 @@ def _run_aux(board: Optional[str], module: str, fn: str, task_id: str, author: O
 
 
 def _require_task(conn: sqlite3.Connection, task_id: str) -> kanban_db.Task:
-    return _require(kanban_db.get_task, conn, task_id, "task")
+    task = _require(kanban_db.get_task, conn, task_id, "task")
+    service_scope.require_task(task)
+    return task
 
 
 def _require_run(conn: sqlite3.Connection, run_id: int) -> kanban_db.Run:
@@ -288,6 +291,7 @@ def get_board(
         tasks = kanban_db.list_tasks(
             conn, tenant=tenant, include_archived=include_archived,
             workflow_template_id=workflow_template_id, current_step_key=current_step_key)
+        tasks = [task for task in tasks if service_scope.task_allowed(task)]
         # Link / comment / progress rollups are each one aggregate query rather than N per-task lookups.
         link_counts: dict[str, dict[str, int]] = {}
         for row in conn.execute("SELECT parent_id, child_id FROM task_links").fetchall():
@@ -414,7 +418,10 @@ class CreateTaskBody(BaseModel):
 def create_task(payload: CreateTaskBody, board: Optional[str] = Query(None)):
     with _board_conn(board) as (board, conn), _value_error_400():
         # CreateTaskBody field names match create_task's keyword parameters.
-        task_id = kanban_db.create_task(conn, created_by="dashboard", board=board, **payload.model_dump())
+        values = payload.model_dump()
+        if assignee := service_scope.launch_assignee():
+            values["assignee"] = assignee
+        task_id = kanban_db.create_task(conn, created_by="dashboard", board=board, **values)
         task = kanban_db.get_task(conn, task_id)
         body: dict[str, Any] = {"task": _task_dict(task) if task else None}
         # Dispatcher-presence warning so the UI can banner a ready+assigned task that would
@@ -582,6 +589,7 @@ _STATUS_HANDLERS: dict[str, Any] = {
 def _apply_status(conn, task_id: str, s: str, p, unknown_detail: str) -> bool:
     """Dispatch a status verb; raises ``_StatusRejected`` (user-facing message)
     for ``running`` or an unknown status (``unknown_detail``)."""
+    service_scope.require_status_owner(_require_task(conn, task_id))
     if s == "running":
         raise _StatusRejected(_RUNNING_DIRECT_MSG)
     handler = _STATUS_HANDLERS.get(s)
@@ -1385,7 +1393,8 @@ def list_kanban_projects():
 @router.get("/boards")
 def list_boards(include_archived: bool = Query(False)):
     """Every board on disk with task counts and the active slug."""
-    boards = kanban_db.list_boards(include_archived=include_archived)
+    boards = [b for b in kanban_db.list_boards(include_archived=include_archived)
+              if service_scope.project_allowed(b.get("project_id"))]
     current = kanban_db.get_current_board()
     proj_map = _projects_by_id()
     for b in boards:
