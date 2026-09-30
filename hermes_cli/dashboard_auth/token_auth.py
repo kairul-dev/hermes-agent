@@ -76,6 +76,10 @@ async def token_auth_middleware(
     request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
     """Pass-through for unregistered paths; for a token route, valid token -> attach principal +
     flag, unreachable -> 503, else 401."""
+    from .local_service import service_http
+    service_response = await service_http(request, call_next)
+    if service_response is not None:
+        return service_response
     path = request.url.path
     if not is_token_route(path):
         return await call_next(request)

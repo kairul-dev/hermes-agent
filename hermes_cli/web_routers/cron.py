@@ -88,6 +88,10 @@ def _job_owner_profile(job_id: str, profile: Optional[str]) -> Optional[str]:
     wins, so deliberately scoped lookups (the same job id in two profiles,
     e.g. a copied jobs.json) keep reading the named profile.
     """
+    from hermes_cli.dashboard_auth.local_service import CURRENT_SERVICE
+    if CURRENT_SERVICE.get() is not None:
+        jobs = _call_cron_for_profile("current", "list_jobs", True)
+        return "current" if any(j.get("id") == job_id or j.get("name") == job_id for j in jobs) else None
     if profile:
         jobs = _call_cron_for_profile(profile, "list_jobs", True)
         if any(j.get("id") == job_id or j.get("name") == job_id for j in jobs):

@@ -250,6 +250,16 @@ def _decline(rid: str, transport: Any) -> bool:
     return True
 
 
+def service_response_context(frame: dict) -> tuple[str, str] | None:
+    """Non-secret request ownership for the service dispatch gate."""
+    rid = frame.get("id")
+    if not isinstance(rid, str):
+        return None
+    with _lock:
+        req = _open.get(rid)
+        return (req.method, req.sid) if req is not None else None
+
+
 def resolve_response(frame: dict, transport: Any = None) -> bool:
     """Route one client response frame to its open request. False when nothing is waiting for that id
     (already timed out / cancelled, or owned by another process — see the compute-host bridge).

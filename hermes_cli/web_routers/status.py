@@ -118,7 +118,8 @@ async def get_health():
     """Lightweight process liveness for desktop/backend readiness probes."""
     info = get_version_info()
     return {"ok": True, "version": info.base_version, "displayVersion": info.display_version,
-            "auth_required": bool(getattr(app.state, "auth_required", False))}
+            "auth_required": bool(getattr(app.state, "auth_required", False)),
+            "service_auth_contract": "hermes-local-service-v1"}
 
 
 @router.get("/api/host/identity")

@@ -297,6 +297,7 @@ async def handle_ws(ws: Any, *, auth_identity: dict | None = None, subprotocol: 
     ``{user_id, provider}`` recorded at WS-upgrade auth, stored as ``WSTransport.auth_identity`` (the only identity
     authority for browser-controller registration); callers that omit it (harnesses, embedded TUI child) get None."""
     peer, transport = _ws_peer_label(ws), None
+    service_watch = None
     messages = parse_errors = dispatch_crashes = send_failures = 0
     disconnect_reason = "not_connected"
 
@@ -357,6 +358,10 @@ async def handle_ws(ws: Any, *, auth_identity: dict | None = None, subprotocol: 
         _disable_nagle(ws)
         _log.info("ws accepted peer=%s", peer)
         transport = WSTransport(ws, asyncio.get_running_loop(), peer=peer, auth_identity=auth_identity)
+        transport.service_identity = getattr(ws, "_hermes_service_identity", None)
+        if transport.service_identity is not None:
+            from hermes_cli.dashboard_auth.local_service import watch_service
+            service_watch = asyncio.create_task(watch_service(ws, transport))
         # resolve_skin() is sync I/O + CPU; pooled so the read loop can drain the frontend's initial RPC burst.
         skin_payload = await asyncio.to_thread(server.resolve_skin)
         # change_events: this backend broadcasts pet/cron/sessions.changed, so clients can demote legacy
@@ -417,6 +422,13 @@ async def handle_ws(ws: Any, *, auth_identity: dict | None = None, subprotocol: 
                 await _reply(_error(-32700, "parse error", None), "send_failed_after_parse_error",
                              "ws parse-error reply send failed peer=%s", peer)
                 continue
+            from hermes_cli.dashboard_auth.local_service import authorize_rpc, ServiceDenied
+            try:
+                await asyncio.to_thread(authorize_rpc, transport, req)
+            except ServiceDenied:
+                await _reply(_error(4030, "Service RPC authorization denied", req.get("id") if isinstance(req, dict) else None),
+                             "service_denied", "ws service RPC denied peer=%s", peer)
+                continue
             if isinstance(req, dict) and req.get("method") == "gateway.ping":
                 req_id = req.get("id")
                 await _reply({"jsonrpc": "2.0", "result": {"ok": True}, "id": req_id}, "send_failed_after_heartbeat",
@@ -426,6 +438,10 @@ async def handle_ws(ws: Any, *, auth_identity: dict | None = None, subprotocol: 
     except _SendFailed:
         pass
     finally:
+        if service_watch is not None:
+            service_watch.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await service_watch
         if dispatcher is not None:
             # Finish the in-flight handler and the frames read before the disconnect (as the serial read loop
             # did) before the teardown below parks this transport's sessions. A cancelled connection (server

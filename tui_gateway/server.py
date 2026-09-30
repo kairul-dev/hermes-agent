@@ -728,6 +728,8 @@ def _broadcast_global_event(event: str, payload: dict | None = None) -> None:
         return None
     frame = _event_frame(event, "", payload)
     for transport in targets:
+        if getattr(transport, "service_identity", None) is not None:
+            continue
         try:
             transport.write(frame)
         except Exception:  # one wedged peer must not stall the rest; disconnect teardown unregisters it

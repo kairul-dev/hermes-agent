@@ -1044,6 +1044,8 @@ _mount_plugin_api_routes()
 from hermes_cli.dashboard_auth.routes import router as _dashboard_auth_router  # noqa: E402
 
 app.include_router(_dashboard_auth_router)
+from hermes_cli.dashboard_auth.service_routes import router as _service_auth_router
+app.include_router(_service_auth_router)
 mount_spa(app)
 
 
