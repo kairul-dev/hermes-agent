@@ -151,3 +151,44 @@ class TestResetNoticeSessionInfo:
         assert "anthropic" in info
         assert "base-model" not in info
 
+
+class TestChannelOverrideBanner:
+    """A chat pinned by ``channel_overrides`` must show its effective route in the /new banner.
+
+    The banner used to resolve only the global ``model.default``, so a chat overridden to another
+    model/provider (e.g. a Telegram DM running a different model than the CLI default) rendered a
+    route it never runs — banner and ``_resolve_session_agent_runtime`` disagreeing on one config.
+    """
+
+    def test_banner_reports_channel_override_not_global_default(self, runner, tmp_path):
+        from types import SimpleNamespace
+        from gateway.config import ChannelOverride, Platform, PlatformConfig
+        from gateway.session import SessionSource
+
+        (tmp_path / "config.yaml").write_text(
+            "model:\n  default: gpt-6-luna\n  provider: openai-codex\n"
+            "  base_url: https://chatgpt.com/backend-api/codex\n"
+        )
+        runner.config = SimpleNamespace(platforms={
+            Platform.TELEGRAM: PlatformConfig(
+                enabled=True,
+                channel_overrides={"123": ChannelOverride(
+                    model="deepseek/deepseek-v4.1-flash-fast", provider="commandcode")},
+            )})
+        source = SessionSource(platform=Platform.TELEGRAM, chat_id="123", user_id="u1")
+        with patch("gateway.run._hermes_home", tmp_path), \
+             patch("gateway.run._resolve_runtime_agent_kwargs",
+                   return_value={"provider": "openai-codex",
+                                 "base_url": "https://chatgpt.com/backend-api/codex",
+                                 "api_key": ""}), \
+             patch("gateway.run._resolve_runtime_agent_kwargs_for_provider",
+                   return_value={"provider": "commandcode",
+                                 "base_url": "https://api.commandcode.ai/provider/v1",
+                                 "api_key": "test"}), \
+             patch("agent.model_metadata.get_model_context_length", return_value=200_000):
+            info = runner._reset_notice_session_info(source)
+
+        assert "deepseek/deepseek-v4.1-flash-fast" in info
+        assert "commandcode" in info
+        assert "gpt-6-luna" not in info
+

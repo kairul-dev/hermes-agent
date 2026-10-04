@@ -2341,12 +2341,19 @@ class GatewayTurnMixin:
         Call via ``asyncio.to_thread``: resolution can block (credential refresh, context-length
         probes), and the scope is entered here so contextvars behave in the worker thread."""
         with self._profile_scope_for_source(source):
-            return self._format_session_info()
+            return self._format_session_info(source)
 
-    def _format_session_info(self) -> str:
-        """Model / provider / context-length / endpoint block so users can spot bad context detection."""
+    def _format_session_info(self, source: Optional[SessionSource] = None) -> str:
+        """Model / provider / context-length / endpoint block so users can spot bad context detection.
+
+        With ``source`` the block reports the route the next turn will actually run for that chat —
+        the chat's ``channel_overrides`` (resolved like the turn's channel tier) over the global
+        default. Without it, the global default only. The session ``/model`` tier is necessarily
+        empty here: every call site fires right after a reset, which clears that conversation scope.
+        """
         from gateway.run import _resolve_gateway_model_context
-        resolved = _resolve_gateway_model_context()
+        model, route = self._channel_route_for_source(source)
+        resolved = _resolve_gateway_model_context(model=model, route=route)
         context_length = resolved.context_length
         ctx_source = {
             "config": "config",
@@ -2372,6 +2379,43 @@ class GatewayTurnMixin:
         if base_url and base_url_hostname(base_url) in ("localhost", "127.0.0.1", "0.0.0.0"):
             lines.append(t("gateway.session.info_endpoint", url=base_url))
         return "\n".join(lines)
+
+    def _channel_route_for_source(
+        self, source: Optional[SessionSource],
+    ) -> tuple[Optional[str], Optional[dict]]:
+        """``(model, route)`` from this chat's ``channel_overrides``, or ``(None, None)``.
+
+        Mirrors the channel tier of ``_resolve_session_agent_runtime`` so the banner and the run
+        agree on the route: the override's model wins over the global default, and its provider
+        resolves to the same runtime route a turn would use. An unresolvable provider degrades to
+        the model-only display — the banner must never fail the /new command or the auto-reset
+        notice, and a chat overridden to another model must not render the global default it
+        never runs.
+        """
+        if source is None:
+            return None, None
+        override = self._channel_override_for(source)
+        if override is None:
+            return None, None
+        model = override.model or None
+        route = None
+        if override.provider:
+            from gateway.run import _resolve_gateway_model, _resolve_runtime_agent_kwargs_for_provider
+            try:
+                runtime = _resolve_runtime_agent_kwargs_for_provider(
+                    override.provider,
+                    target_model=override.model or _resolve_gateway_model() or None)
+            except Exception:
+                logger.debug(
+                    "Channel override provider %s did not resolve for the session banner; "
+                    "reporting the model without its route", override.provider, exc_info=True)
+            else:
+                route = {
+                    "provider": runtime.get("provider") or override.provider,
+                    "base_url": runtime.get("base_url"),
+                    "api_key": runtime.get("api_key"),
+                }
+        return model, route
 
     async def _run_background_task(
         self, prompt: str, source: "SessionSource", task_id: str,
