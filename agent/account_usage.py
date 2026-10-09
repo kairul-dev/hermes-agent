@@ -924,6 +924,10 @@ PANEL_PROVIDERS: tuple[tuple[str, str], ...] = (
 )
 _PANEL_WINDOW_KINDS = ("five_hour", "weekly")
 _PANEL_TTL_S = 60.0
+# How long last-known numbers may be shown after refreshes start failing. Bounds
+# the cases a credential probe cannot see (e.g. a revoked-but-well-formed OAuth
+# token): the account then drops out instead of lingering as "stale" forever.
+_PANEL_STALE_MAX_S = 30 * 60.0
 _PANEL_FETCH_TIMEOUT_S = 12.0
 
 _panel_lock = threading.Lock()
@@ -971,7 +975,10 @@ def _panel_has_credentials(provider: str) -> bool:
             _resolve_codex_usage_credentials(None, None)
             return True
         if provider == "anthropic":
-            return bool((resolve_anthropic_token() or "").strip())
+            # Only an OAuth login can serve the usage API: a plain API key
+            # (what a user who switched away from OAuth has) is "no account".
+            token = (resolve_anthropic_token() or "").strip()
+            return bool(token) and _is_oauth_token(token)
     except (AuthError, RuntimeError):
         return False
     except Exception:
@@ -1008,7 +1015,8 @@ def _fetch_panel_entry(provider: str, label: str, home: str, refresh: bool) -> O
         # (the panel promises only usable accounts appear); only a genuine
         # transient failure (network, timeout, token mid-refresh) keeps the last
         # good numbers, honestly marked stale, instead of blanking the panel.
-        if not _panel_has_credentials(provider):
+        expired = time.monotonic() - cached[0] > _PANEL_STALE_MAX_S
+        if expired or not _panel_has_credentials(provider):
             with _panel_lock:
                 _panel_cache.pop(key, None)
             return None

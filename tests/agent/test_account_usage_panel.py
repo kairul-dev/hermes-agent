@@ -217,9 +217,14 @@ def test_transient_failure_with_credentials_still_serves_stale(monkeypatch):
 
 
 class TestCredentialProbe:
-    def test_anthropic_follows_token_presence(self, monkeypatch):
-        monkeypatch.setattr(au, "resolve_anthropic_token", lambda: "tok")
+    def test_anthropic_requires_an_oauth_login_not_just_a_token(self, monkeypatch):
+        monkeypatch.setattr(au, "resolve_anthropic_token", lambda: "oauth-tok")
+        monkeypatch.setattr(au, "_is_oauth_token", lambda token: token == "oauth-tok")
         assert au._panel_has_credentials("anthropic") is True
+
+        # Switched from OAuth to a plain API key: cannot serve the usage API.
+        monkeypatch.setattr(au, "resolve_anthropic_token", lambda: "sk-ant-api-key")
+        assert au._panel_has_credentials("anthropic") is False
 
         monkeypatch.setattr(au, "resolve_anthropic_token", lambda: "  ")
         assert au._panel_has_credentials("anthropic") is False
@@ -247,3 +252,38 @@ class TestCredentialProbe:
 
         monkeypatch.setattr(au, "_resolve_codex_usage_credentials", weird)
         assert au._panel_has_credentials("openai-codex") is True
+
+
+def test_anthropic_api_key_switch_drops_the_cached_oauth_account(monkeypatch):
+    """End to end through the builder: OAuth account cached, then the user is on
+    an API key (fetch reports unavailable) -> the old numbers must not linger."""
+    table = {"openai-codex": None, "anthropic": _snapshot("anthropic", _win("five_hour", 62.0))}
+    _install(monkeypatch, table)
+    monkeypatch.setattr(au, "resolve_anthropic_token", lambda: "sk-ant-api-key")
+    monkeypatch.setattr(au, "_is_oauth_token", lambda token: False)
+    assert [p["id"] for p in au.build_account_usage_panel()] == ["anthropic"]
+
+    table["anthropic"] = _snapshot("anthropic", unavailable_reason="OAuth only")
+
+    assert au.build_account_usage_panel(refresh=True) == []
+    assert au._panel_cache == {}
+
+
+def test_stale_numbers_expire_even_when_credentials_look_fine(monkeypatch):
+    """A revoked-but-well-formed token passes the probe; the age cap is the
+    backstop that ends the stale display."""
+    table = {"openai-codex": _snapshot("openai-codex", _win("five_hour", 38.0)), "anthropic": None}
+    _install(monkeypatch, table)
+    monkeypatch.setattr(au, "_panel_has_credentials", lambda provider: True)
+    au.build_account_usage_panel()
+
+    table["openai-codex"] = None
+    (stale,) = au.build_account_usage_panel(refresh=True)
+    assert stale["stale"] is True
+
+    key = next(iter(au._panel_cache))
+    fetched_at, payload = au._panel_cache[key]
+    au._panel_cache[key] = (fetched_at - au._PANEL_STALE_MAX_S - 1, payload)
+
+    assert au.build_account_usage_panel(refresh=True) == []
+    assert au._panel_cache == {}
