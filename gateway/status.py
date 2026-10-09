@@ -1688,7 +1688,9 @@ def _read_live_pid_marker(path: Path, ttl_s: int) -> Optional[tuple[dict[str, An
     return record, target_pid, record.get("target_start_time")
 
 
-def _pid_marker_names_self(target_pid: int, target_start_time: Any) -> bool:
+def _pid_marker_names_self(
+    target_pid: int, target_start_time: Any, *, require_start_time_match: bool = False,
+) -> bool:
     """PID match with an optional start-time PID-reuse guard (watcher probe + consume). Both start
     times known -> must match; either unknown -> PID equality decides (bounded by the marker TTL):
     ``_get_process_start_time`` is None without /proc (macOS, native Windows -- where the
@@ -1697,6 +1699,8 @@ def _pid_marker_names_self(target_pid: int, target_start_time: Any) -> bool:
     if target_pid != os.getpid():
         return False
     our_start_time = _get_process_start_time(target_pid)
+    if require_start_time_match and None in (target_start_time, our_start_time):
+        return False
     return None in (target_start_time, our_start_time) or target_start_time == our_start_time
 
 
@@ -1718,7 +1722,9 @@ def _consume_pid_marker_for_self(path: Path, *, ttl_s: int, on_consume=None, kee
         replacer_home = record.get("replacer_hermes_home")
         if replacer_home is not None and not _same_hermes_home(replacer_home, our_home):
             return False
-    matches = _pid_marker_names_self(target_pid, target_start_time)
+    matches = _pid_marker_names_self(
+        target_pid, target_start_time, require_start_time_match=record.get("require_start_time_match") is True,
+    )
     if matches and on_consume is not None:
         on_consume(path, record)
     if not keep:
@@ -1948,13 +1954,19 @@ def _terminate_verified_owner(
     return None
 
 
-def write_planned_stop_marker(target_pid: int) -> bool:
+def write_planned_stop_marker(target_pid: int, *, expected_start_time: Optional[int] = None) -> bool:
     """Record that ``target_pid`` is being stopped intentionally: unexpected SIGTERM exits non-zero
     so service managers revive the gateway; the CLI writes this first so a deliberate stop exits
     cleanly."""
+    target_start_time = _get_process_start_time(target_pid)
+    # Carry the supervisor's original generation through marker publication. A
+    # replacement appearing after this read cannot consume the old fingerprint.
+    if expected_start_time is not None and target_start_time != expected_start_time:
+        return False
     return _write_marker(_get_planned_stop_marker_path(), {
-        "target_pid": target_pid, "target_start_time": _get_process_start_time(target_pid),
+        "target_pid": target_pid, "target_start_time": target_start_time,
         "stopper_pid": os.getpid(), "written_at": _utc_now_iso(),
+        **({"require_start_time_match": True} if expected_start_time is not None else {}),
     })
 
 
@@ -2014,7 +2026,9 @@ def planned_stop_marker_targets_self() -> bool:
     matching marker (the shutdown handler does the authoritative consume); malformed/expired ones
     are still cleaned up; markers naming another PID are left alone."""
     parsed = _read_live_pid_marker(_get_planned_stop_marker_path(), _PLANNED_STOP_MARKER_TTL_S)
-    return parsed is not None and _pid_marker_names_self(parsed[1], parsed[2])
+    return parsed is not None and _pid_marker_names_self(
+        parsed[1], parsed[2], require_start_time_match=parsed[0].get("require_start_time_match") is True,
+    )
 
 
 def get_running_pid(
