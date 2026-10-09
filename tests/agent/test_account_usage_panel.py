@@ -229,28 +229,11 @@ class TestCredentialProbe:
         monkeypatch.setattr(au, "resolve_anthropic_token", lambda: "  ")
         assert au._panel_has_credentials("anthropic") is False
 
-    def test_codex_without_credentials_is_absent(self, monkeypatch):
-        def none(*_a, **_k):
-            raise au.AuthError("not signed in")
-
-        monkeypatch.setattr(au, "_resolve_codex_usage_credentials", none)
-        assert au._panel_has_credentials("openai-codex") is False
-
-        def pool_empty(*_a, **_k):
-            raise RuntimeError("No available openai-codex credential in credential pool")
-
-        monkeypatch.setattr(au, "_resolve_codex_usage_credentials", pool_empty)
-        assert au._panel_has_credentials("openai-codex") is False
-
-    def test_codex_with_credentials_is_present(self, monkeypatch):
-        monkeypatch.setattr(au, "_resolve_codex_usage_credentials", lambda *_a, **_k: ("tok", "", None))
-        assert au._panel_has_credentials("openai-codex") is True
-
     def test_unknown_error_errs_on_keeping_the_account(self, monkeypatch):
         def weird(*_a, **_k):
             raise ValueError("unexpected")
 
-        monkeypatch.setattr(au, "_resolve_codex_usage_credentials", weird)
+        monkeypatch.setattr(au, "_read_codex_tokens", weird)
         assert au._panel_has_credentials("openai-codex") is True
 
 
@@ -287,3 +270,132 @@ def test_stale_numbers_expire_even_when_credentials_look_fine(monkeypatch):
 
     assert au.build_account_usage_panel(refresh=True) == []
     assert au._panel_cache == {}
+
+
+# ── Codex credentials in a quota cooldown (real auth store, no resolver mocks) ──
+import json  # noqa: E402
+import time  # noqa: E402
+
+import hermes_cli.auth as auth_mod  # noqa: E402
+
+
+def _write_auth(tmp_path, payload):
+    home = tmp_path / ".hermes"
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "auth.json").write_text(json.dumps({"version": 1, "providers": {}, **payload}))
+
+
+def _pool_entry(**over):
+    now = time.time()
+    entry = {
+        "id": "cred",
+        "label": "acct",
+        "auth_type": "oauth",
+        "priority": 0,
+        "source": "device_code",
+        "access_token": "tok-quota",
+        "last_status": "exhausted",
+        "last_status_at": now,
+        "last_error_code": 429,
+        "last_error_reason": "usage_limit_reached",
+        "last_error_message": "The usage limit has been reached",
+        "last_error_reset_at": now + 3 * 24 * 3600,
+    }
+    entry.update(over)
+    return {"credential_pool": {"openai-codex": [entry]}}
+
+
+@pytest.fixture
+def no_network_quota_probe(monkeypatch):
+    # The resolver and the pool each ask the live usage endpoint whether the
+    # quota reset early; the account is genuinely still at its limit here.
+    monkeypatch.setattr(auth_mod, "_probe_codex_quota_restored", lambda *a, **k: False)
+
+
+class TestCodexQuotaCooldown:
+    def test_probe_a_cooled_down_pool_login_is_still_signed_in(self, tmp_path, no_network_quota_probe):
+        _write_auth(tmp_path, _pool_entry())
+        assert au._panel_has_credentials("openai-codex") is True
+
+    def test_probe_a_stored_singleton_login_is_signed_in(self, tmp_path):
+        _write_auth(
+            tmp_path,
+            {"providers": {"openai-codex": {"tokens": {"access_token": "at", "refresh_token": "rt"}, "auth_mode": "chatgpt"}}},
+        )
+        assert au._panel_has_credentials("openai-codex") is True
+
+    def test_probe_no_login_at_all_is_signed_out(self, tmp_path):
+        _write_auth(tmp_path, {})
+        assert au._panel_has_credentials("openai-codex") is False
+
+    def test_probe_a_dead_credential_is_signed_out(self, tmp_path, no_network_quota_probe):
+        # Exhausted for a NON-quota reason (token invalidated): not a usable account.
+        _write_auth(
+            tmp_path,
+            _pool_entry(last_error_code=401, last_error_reason="token_invalidated", last_error_message=""),
+        )
+        assert au._panel_has_credentials("openai-codex") is False
+
+    def test_fetch_resolves_the_cooled_down_token_instead_of_giving_up(self, tmp_path, no_network_quota_probe):
+        _write_auth(tmp_path, _pool_entry())
+
+        token, _base_url, account_id = au._resolve_codex_usage_credentials(None, None)
+
+        assert token == "tok-quota"
+        assert account_id is None
+
+    def test_first_load_shows_an_exhausted_account_at_100_percent(self, tmp_path, monkeypatch, no_network_quota_probe):
+        """The state the panel matters most in: Codex is at its limit. Through the
+        real builder + real credential resolution, only the HTTP edge is stubbed."""
+        _write_auth(tmp_path, _pool_entry())
+        monkeypatch.setattr(au, "resolve_anthropic_token", lambda: "")
+        reset_at = time.time() + 3600
+        payload = {
+            "plan_type": "plus",
+            "rate_limit": {
+                "primary_window": {"used_percent": 100, "reset_at": reset_at},
+                "secondary_window": {"used_percent": 80, "reset_at": reset_at + 86400},
+            },
+        }
+
+        class _Resp:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return payload
+
+        class _Client:
+            def __init__(self, *a, **k):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def get(self, url, headers=None):
+                assert headers["Authorization"] == "Bearer tok-quota"
+                return _Resp()
+
+        monkeypatch.setattr(au.httpx, "Client", _Client)
+
+        (codex,) = au.build_account_usage_panel()
+
+        assert codex["id"] == "openai-codex"
+        assert [(w["kind"], w["used_percent"]) for w in codex["windows"]] == [("five_hour", 100.0), ("weekly", 80.0)]
+
+    def test_a_cached_account_is_not_evicted_when_it_hits_its_limit(self, tmp_path, monkeypatch, no_network_quota_probe):
+        """Cached while healthy; then the fetch starts failing and the pool entry
+        goes into a 429 cooldown. Still signed in -> keep (stale), never evict."""
+        table = {"openai-codex": _snapshot("openai-codex", _win("five_hour", 90.0)), "anthropic": None}
+        _install(monkeypatch, table)
+        au.build_account_usage_panel()
+
+        table["openai-codex"] = None
+        _write_auth(tmp_path, _pool_entry())
+
+        (codex,) = au.build_account_usage_panel(refresh=True)
+
+        assert codex["stale"] is True

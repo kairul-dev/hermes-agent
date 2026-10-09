@@ -11,7 +11,13 @@ from typing import TYPE_CHECKING, Any, Optional
 import httpx
 
 from agent.anthropic_adapter import _is_oauth_token, resolve_anthropic_token
-from hermes_cli.auth import AuthError, _read_codex_tokens, resolve_codex_runtime_credentials
+from hermes_cli.auth import (
+    AuthError,
+    _codex_pool_rate_limit_status,
+    _pool_codex_access_token,
+    _read_codex_tokens,
+    resolve_codex_runtime_credentials,
+)
 from hermes_cli.runtime_provider import resolve_runtime_provider
 
 if TYPE_CHECKING:
@@ -507,9 +513,20 @@ def _resolve_codex_usage_credentials(
 
     pool = load_pool("openai-codex")
     entry = pool.select()
-    if entry is None:
-        raise RuntimeError("No available openai-codex credential in credential pool")
-    return entry.runtime_api_key, str(entry.runtime_base_url or base_url or "").strip(), None
+    if entry is not None:
+        return entry.runtime_api_key, str(entry.runtime_base_url or base_url or "").strip(), None
+
+    # Tier 4: every pool entry is in a 429 quota cooldown, so ``select()`` skips
+    # them and the runtime resolver refuses to hand them out for chat — but the
+    # login is still valid, and the usage endpoint answers for it (Hermes's own
+    # quota-restored probe does exactly this). This is the state where the
+    # numbers matter most (the account is at its limit), so report them rather
+    # than "no credentials". Chat routing is untouched: only quota diagnostics
+    # read the cooled-down token.
+    limited = _codex_pool_rate_limit_status()
+    if limited and limited.get("access_token"):
+        return limited["access_token"], str(limited.get("base_url") or base_url or "").strip(), None
+    raise RuntimeError("No available openai-codex credential in credential pool")
 
 
 def _fetch_codex_account_usage(
@@ -972,8 +989,17 @@ def _panel_has_credentials(provider: str) -> bool:
     """
     try:
         if provider == "openai-codex":
-            _resolve_codex_usage_credentials(None, None)
-            return True
+            # "Signed in" means a Codex login is stored, NOT that the runtime
+            # resolver would hand it out right now: a pool entry in a 429 quota
+            # cooldown is refused by the resolver yet is still a valid account
+            # (the state where the panel matters most).
+            try:
+                _read_codex_tokens()
+                return True
+            except AuthError as exc:
+                if not getattr(exc, "relogin_required", False):
+                    return True  # not a sign-out (e.g. rate-limited / transient)
+            return bool(_pool_codex_access_token() or _codex_pool_rate_limit_status())
         if provider == "anthropic":
             # Only an OAuth login can serve the usage API: a plain API key
             # (what a user who switched away from OAuth has) is "no account".
