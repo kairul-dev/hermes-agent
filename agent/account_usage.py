@@ -959,6 +959,26 @@ def _panel_entry(provider: str, label: str, snapshot: Optional[AccountUsageSnaps
     }
 
 
+def _panel_has_credentials(provider: str) -> bool:
+    """Whether ``provider`` still has usable credentials in the current home.
+
+    Only consulted after a failed fetch. When the answer can't be determined
+    (an unexpected error) it reports True: keeping stale numbers is the safer
+    error than hiding a live account.
+    """
+    try:
+        if provider == "openai-codex":
+            _resolve_codex_usage_credentials(None, None)
+            return True
+        if provider == "anthropic":
+            return bool((resolve_anthropic_token() or "").strip())
+    except (AuthError, RuntimeError):
+        return False
+    except Exception:
+        logger.debug("account usage ▸ credential probe failed for %s", provider, exc_info=True)
+    return True
+
+
 def _fetch_panel_entry(provider: str, label: str, home: str, refresh: bool) -> Optional[dict[str, Any]]:
     from agent.deadline import run_bounded_sync
 
@@ -981,12 +1001,18 @@ def _fetch_panel_entry(provider: str, label: str, home: str, refresh: bool) -> O
         logger.debug("account usage ▸ panel fetch failed for %s (fail-open)", provider, exc_info=True)
 
     if entry is None:
-        # Transient failure (network, timeout, expired token mid-refresh): keep
-        # showing the last good numbers, honestly marked stale, instead of
-        # blanking the panel. A provider never seen successfully stays absent.
-        if cached:
-            return {**cached[1], "stale": True}
-        return None
+        if cached is None:
+            return None
+        # ``fetch_account_usage`` answers None for BOTH "no credentials" and a
+        # failed fetch. Signed out / removed credentials must drop the provider
+        # (the panel promises only usable accounts appear); only a genuine
+        # transient failure (network, timeout, token mid-refresh) keeps the last
+        # good numbers, honestly marked stale, instead of blanking the panel.
+        if not _panel_has_credentials(provider):
+            with _panel_lock:
+                _panel_cache.pop(key, None)
+            return None
+        return {**cached[1], "stale": True}
 
     with _panel_lock:
         _panel_cache[key] = (time.monotonic(), entry)
@@ -1000,14 +1026,19 @@ def build_account_usage_panel(*, refresh: bool = False) -> list[dict[str, Any]]:
     per profile home; ``refresh=True`` bypasses the cache. Returns only the
     providers that produced data, in ``PANEL_PROVIDERS`` order.
     """
+    import contextvars
     from concurrent.futures import ThreadPoolExecutor
 
     from hermes_constants import get_hermes_home
 
     home = str(get_hermes_home())
     with ThreadPoolExecutor(max_workers=len(PANEL_PROVIDERS)) as pool:
+        # ``submit`` does not carry ContextVars: without a per-task copy the
+        # profile's HERMES_HOME override (set by the RPC's profile scope) is
+        # lost and the fetch would read the launch profile's credentials while
+        # the result is cached under the requested profile's key.
         futures = [
-            pool.submit(_fetch_panel_entry, provider, label, home, refresh)
+            pool.submit(contextvars.copy_context().run, _fetch_panel_entry, provider, label, home, refresh)
             for provider, label in PANEL_PROVIDERS
         ]
         entries = [future.result() for future in futures]

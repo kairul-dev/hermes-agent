@@ -43,10 +43,17 @@ export function resetAccountUsage(): void {
 interface RefreshOptions {
   /** Bypass the backend's cache (the manual refresh button). */
   force?: boolean
+  /** Whose account to read. Profiles share one socket under an app-global
+   *  remote connection and the backend picks the profile from this param, so
+   *  omitting it would answer with the launch profile's account. */
+  profile: string
   scope: string
 }
 
-export function refreshAccountUsage(request: GatewayRequest, { force = false, scope }: RefreshOptions): Promise<void> {
+export function refreshAccountUsage(
+  request: GatewayRequest,
+  { force = false, profile, scope }: RefreshOptions
+): Promise<void> {
   // Single flight per scope: focus + interval + mount can all ask at once. A
   // forced refresh is a deliberate user intent and always goes out.
   if (!force && inFlight?.scope === scope) {
@@ -58,7 +65,7 @@ export function refreshAccountUsage(request: GatewayRequest, { force = false, sc
 
   $accountUsageLoading.set(true)
 
-  const promise = request<AccountUsageResponse>('account.usage', force ? { refresh: true } : {})
+  const promise = request<AccountUsageResponse>('account.usage', force ? { profile, refresh: true } : { profile })
     .then(result => {
       if (!current()) {
         return

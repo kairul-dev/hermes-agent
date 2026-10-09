@@ -135,6 +135,8 @@ def test_failure_after_success_serves_stale_last_good(monkeypatch):
     au.build_account_usage_panel()
 
     table["openai-codex"] = RuntimeError("network down")
+    # Still signed in: only the fetch failed.
+    monkeypatch.setattr(au, "_panel_has_credentials", lambda provider: True)
     (codex,) = au.build_account_usage_panel(refresh=True)
 
     assert codex["stale"] is True
@@ -157,3 +159,91 @@ def test_cache_is_scoped_per_profile_home(monkeypatch, tmp_path):
 
     # A second profile must not be answered from the first profile's account.
     assert calls["openai-codex"] == 2
+
+
+def test_profile_home_reaches_the_provider_fetch_workers(monkeypatch, tmp_path):
+    """The RPC's profile scope is a ContextVar; worker threads must inherit it,
+    or the fetch reads the launch profile's credentials while the result is
+    cached under the requested profile (wrong account shown)."""
+    from hermes_constants import get_hermes_home, reset_hermes_home_override, set_hermes_home_override
+
+    seen = {}
+
+    def fake(provider, **_kw):
+        seen[provider] = str(get_hermes_home())
+        return _snapshot(provider, _win("five_hour", 10.0))
+
+    monkeypatch.setattr(au, "fetch_account_usage", fake)
+    profile_home = tmp_path / "profiles" / "ops"
+    profile_home.mkdir(parents=True)
+
+    token = set_hermes_home_override(profile_home)
+    try:
+        au.build_account_usage_panel()
+    finally:
+        reset_hermes_home_override(token)
+
+    assert seen == {"openai-codex": str(profile_home), "anthropic": str(profile_home)}
+
+
+def test_signed_out_provider_is_evicted_not_kept_stale(monkeypatch):
+    table = {"openai-codex": _snapshot("openai-codex", _win("five_hour", 38.0)), "anthropic": None}
+    _install(monkeypatch, table)
+    assert [p["id"] for p in au.build_account_usage_panel()] == ["openai-codex"]
+
+    # Credentials removed: fetch_account_usage now answers None, same as a failure.
+    table["openai-codex"] = None
+    monkeypatch.setattr(au, "_panel_has_credentials", lambda provider: False)
+
+    assert au.build_account_usage_panel(refresh=True) == []
+    assert au._panel_cache == {}
+
+    # And it stays gone even if the credential probe later flips back (no resurrection from cache).
+    monkeypatch.setattr(au, "_panel_has_credentials", lambda provider: True)
+    assert au.build_account_usage_panel(refresh=True) == []
+
+
+def test_transient_failure_with_credentials_still_serves_stale(monkeypatch):
+    table = {"openai-codex": _snapshot("openai-codex", _win("five_hour", 38.0)), "anthropic": None}
+    _install(monkeypatch, table)
+    au.build_account_usage_panel()
+
+    table["openai-codex"] = None
+    monkeypatch.setattr(au, "_panel_has_credentials", lambda provider: True)
+
+    (codex,) = au.build_account_usage_panel(refresh=True)
+
+    assert codex["stale"] is True
+
+
+class TestCredentialProbe:
+    def test_anthropic_follows_token_presence(self, monkeypatch):
+        monkeypatch.setattr(au, "resolve_anthropic_token", lambda: "tok")
+        assert au._panel_has_credentials("anthropic") is True
+
+        monkeypatch.setattr(au, "resolve_anthropic_token", lambda: "  ")
+        assert au._panel_has_credentials("anthropic") is False
+
+    def test_codex_without_credentials_is_absent(self, monkeypatch):
+        def none(*_a, **_k):
+            raise au.AuthError("not signed in")
+
+        monkeypatch.setattr(au, "_resolve_codex_usage_credentials", none)
+        assert au._panel_has_credentials("openai-codex") is False
+
+        def pool_empty(*_a, **_k):
+            raise RuntimeError("No available openai-codex credential in credential pool")
+
+        monkeypatch.setattr(au, "_resolve_codex_usage_credentials", pool_empty)
+        assert au._panel_has_credentials("openai-codex") is False
+
+    def test_codex_with_credentials_is_present(self, monkeypatch):
+        monkeypatch.setattr(au, "_resolve_codex_usage_credentials", lambda *_a, **_k: ("tok", "", None))
+        assert au._panel_has_credentials("openai-codex") is True
+
+    def test_unknown_error_errs_on_keeping_the_account(self, monkeypatch):
+        def weird(*_a, **_k):
+            raise ValueError("unexpected")
+
+        monkeypatch.setattr(au, "_resolve_codex_usage_credentials", weird)
+        assert au._panel_has_credentials("openai-codex") is True

@@ -28,7 +28,7 @@ import {
 } from '@/store/account-usage'
 import { $activeConnectionId } from '@/store/connections'
 import { $sidebarUsageOpen, setSidebarUsageOpen } from '@/store/layout'
-import { $activeGatewayProfile } from '@/store/profile'
+import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
 import { $gatewayState } from '@/store/session'
 import type { AccountUsageProvider, AccountUsageWindow } from '@/types/hermes'
 
@@ -75,14 +75,15 @@ export function AccountUsagePanel() {
   const open = useStore($sidebarUsageOpen)
   const visible = usePaneVisible()
   const now = useNow(CLOCK_TICK_MS, visible)
-  const scope = `${connectionId ?? ''}|${profile}`
+  const profileKey = normalizeProfileKey(profile)
+  const scope = `${connectionId ?? ''}|${profileKey}`
 
   useEffect(() => {
     if (gatewayState !== 'open' || !visible) {
       return
     }
 
-    const refresh = () => void refreshAccountUsage(requestGateway, { scope })
+    const refresh = () => void refreshAccountUsage(requestGateway, { profile: profileKey, scope })
     const hidden = () => document.visibilityState === 'hidden'
 
     refresh()
@@ -107,7 +108,7 @@ export function AccountUsagePanel() {
       window.removeEventListener('focus', onActive)
       document.removeEventListener('visibilitychange', onActive)
     }
-  }, [gatewayState, requestGateway, scope, visible])
+  }, [gatewayState, profileKey, requestGateway, scope, visible])
 
   // Held keyed by the scope it describes: never paint the previous profile's
   // account under the one that just became active.
@@ -118,7 +119,7 @@ export function AccountUsagePanel() {
       failed={failed}
       loading={loading}
       now={now}
-      onRefresh={() => void refreshAccountUsage(requestGateway, { force: true, scope })}
+      onRefresh={() => void refreshAccountUsage(requestGateway, { force: true, profile: profileKey, scope })}
       onToggle={() => setSidebarUsageOpen(!open)}
       open={open}
       state={current}
