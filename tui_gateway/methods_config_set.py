@@ -327,6 +327,23 @@ def _set_reasoning(rid, params, key, value, session):
     parsed = parse_reasoning_effort(arg)
     if parsed is None:
         return _err(rid, 4002, f"unknown reasoning value: {value}")
+    # Fail closed on a session-targeted change. ``session`` is None both when
+    # the caller asked for the profile value (no session_id at all — the
+    # intentional global path below) and when the caller NAMED a session that
+    # is no longer live. The named-session case is already rejected upstream by
+    # the ``config.set`` dispatcher (_sess_nowait, 4001 "session not found"),
+    # but a request with ``scope: "session"`` and NO session_id would still
+    # fall through to the global write; that is a malformed session-scoped
+    # request, not a profile change. Reject it instead of guessing; an explicit
+    # ``scope: "global"`` still means the caller asked for the profile value.
+    if session is None and scope == "session":
+        return _err(
+            rid,
+            4001,
+            "reasoning was not changed: a session-scoped request must name a "
+            "live session_id (omit scope and session_id to change "
+            "agent.reasoning_effort for the profile)",
+        )
     if scope == "global" or session is None:
         _write_config_key("agent.reasoning_effort", arg)
         if session is not None:

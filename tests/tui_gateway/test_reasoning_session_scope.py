@@ -160,3 +160,193 @@ class TestSessionNoneReachesDeepSeekWire:
         assert kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
         assert "reasoning_effort" not in kwargs
 
+
+class TestSessionInfoReasoningPin:
+    """The session's create_reasoning_override pin outranks a lagging agent.
+
+    A session-scoped change made while the deferred agent build is in flight
+    lands on ``create_reasoning_override`` and is applied when the agent is
+    built — but an agent that finished building BEFORE the pin exists keeps the
+    PROFILE config until the next build re-applies it. ``_session_info`` used to
+    read only the agent, so session.info / resume / activate reported the
+    profile effort while ``config.get {session_id}`` reported the pin, and
+    clients that trust info (desktop, Forge) snapped the user's pick back.
+    """
+
+    def test_live_pin_outranks_a_lagging_agent(self) -> None:
+        info = _session_info(
+            _agent({"enabled": True, "effort": "medium"}),
+            {
+                "session_key": "k-pinned",
+                "create_reasoning_override": {"enabled": True, "effort": "low"},
+            },
+        )
+        assert info["reasoning_effort"] == "low"
+
+    def test_disabled_pin_reports_none_not_the_agent(self) -> None:
+        info = _session_info(
+            _agent({"enabled": True, "effort": "high"}),
+            {"session_key": "k-pinned", "create_reasoning_override": {"enabled": False}},
+        )
+        assert info["reasoning_effort"] == "none"
+
+    def test_agent_value_is_used_when_no_pin_exists(self) -> None:
+        """Control: the pin is an override, not a replacement for the agent."""
+        info = _session_info(
+            _agent({"enabled": True, "effort": "high"}),
+            {"session_key": "k-live"},
+        )
+        assert info["reasoning_effort"] == "high"
+
+    def test_non_dict_pin_falls_back_to_the_agent(self) -> None:
+        info = _session_info(
+            _agent({"enabled": True, "effort": "high"}),
+            {"session_key": "k-live", "create_reasoning_override": None},
+        )
+        assert info["reasoning_effort"] == "high"
+
+
+class TestSessionScopeReasoningFailsClosed:
+    """A session-targeted reasoning change must never rewrite the profile value.
+
+    The config.set dispatcher already rejects a NAMED session that is no longer
+    live (_sess_nowait -> 4001 before any handler runs). These tests pin that
+    behavior AND the remaining edge: ``scope: "session"`` with no session_id
+    must not fall through to the global write either. The durable artifact —
+    the real config.yaml on disk — is asserted, not a mocked writer.
+    """
+
+    PROFILE_EFFORT = "medium"
+
+    def _config_home(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(server, "_hermes_home", tmp_path)
+        monkeypatch.setattr(server, "_cfg_cache", None)
+        monkeypatch.setattr(server, "_cfg_sig", None)
+        monkeypatch.setattr(server, "_cfg_path", None)
+        cfg_path = tmp_path / "config.yaml"
+        cfg_path.write_text(
+            f"agent:\n  reasoning_effort: {self.PROFILE_EFFORT}\n", encoding="utf-8"
+        )
+        return cfg_path
+
+    def _profile_effort(self, cfg_path) -> str:
+        import hermes_yaml as yaml
+        return str(yaml.safe_load(cfg_path.read_text(encoding="utf-8"))["agent"]["reasoning_effort"])
+
+    def _dispatch(self, params: dict) -> dict:
+        handler = server._methods["config.set"]
+        return handler("rid-stale", params)
+
+    def test_scope_session_without_session_id_rejected(self, tmp_path, monkeypatch):
+        cfg_path = self._config_home(tmp_path, monkeypatch)
+        before = cfg_path.read_bytes()
+
+        resp = self._dispatch({"key": "reasoning", "value": "high", "scope": "session"})
+
+        assert "error" in resp, "a session-scoped request that names no session must be rejected"
+        assert resp["error"]["code"] == 4001
+        assert cfg_path.read_bytes() == before
+        assert self._profile_effort(cfg_path) == self.PROFILE_EFFORT
+
+    def test_stale_session_id_rejected_and_profile_untouched(self, tmp_path, monkeypatch):
+        cfg_path = self._config_home(tmp_path, monkeypatch)
+        before = cfg_path.read_bytes()
+
+        resp = self._dispatch(
+            {
+                "session_id": "no-longer-live",
+                "key": "reasoning",
+                "value": "ultra",
+                "scope": "session",
+            }
+        )
+
+        assert "error" in resp, "a stale session-targeted change must be rejected"
+        assert resp["error"]["code"] == 4001
+        assert cfg_path.read_bytes() == before, "the profile default must not be rewritten"
+        assert self._profile_effort(cfg_path) == self.PROFILE_EFFORT
+
+    def test_deleted_live_session_rejected(self, tmp_path, monkeypatch):
+        """The deletion/race case: the session existed, then went away."""
+        cfg_path = self._config_home(tmp_path, monkeypatch)
+        session = {
+            "session_key": "k-raced",
+            "agent": _agent(None),
+            "create_reasoning_override": {"enabled": True, "effort": "low"},
+        }
+        with patch.dict(server._sessions, {"s-raced": session}, clear=False):
+            # Exactly how the gateway removes a live session before teardown
+            # (idle reaper, LRU eviction, WS close): the pop is the ownership
+            # claim, so the record is gone while the client still holds the id.
+            popped = server._sessions.pop("s-raced", None)
+            assert popped is not None
+            before = cfg_path.read_bytes()
+
+            resp = self._dispatch(
+                {
+                    "session_id": "s-raced",
+                    "key": "reasoning",
+                    "value": "high",
+                    "scope": "session",
+                }
+            )
+
+        assert "error" in resp, "a deleted session must not fall back to the profile value"
+        assert resp["error"]["code"] == 4001
+        assert cfg_path.read_bytes() == before
+        assert self._profile_effort(cfg_path) == self.PROFILE_EFFORT
+
+    def test_live_session_change_still_session_scoped(self, tmp_path, monkeypatch):
+        """The guard must not break the case it protects."""
+        cfg_path = self._config_home(tmp_path, monkeypatch)
+        agent = _agent(None)
+        session = {"session_key": "k-live", "agent": agent}
+        with patch.dict(server._sessions, {"s-live": session}, clear=False), patch.object(
+            server, "_persist_live_session_runtime"
+        ), patch.object(server, "_emit"):
+            before = cfg_path.read_bytes()
+            resp = self._dispatch(
+                {
+                    "session_id": "s-live",
+                    "key": "reasoning",
+                    "value": "high",
+                    "scope": "session",
+                }
+            )
+
+        assert resp["result"]["value"] == "high"
+        assert session["create_reasoning_override"] == {"enabled": True, "effort": "high"}
+        assert agent.reasoning_config == {"enabled": True, "effort": "high"}
+        assert cfg_path.read_bytes() == before, "a live session change stays session-scoped"
+
+    def test_profile_write_without_session_still_works(self, tmp_path, monkeypatch):
+        """Control: the profile path is preserved AND the file is observable.
+
+        Without this, every "unchanged" assertion above would be vacuous — a
+        guard that simply refused all writes would look identical.
+        """
+        cfg_path = self._config_home(tmp_path, monkeypatch)
+        before = cfg_path.read_bytes()
+
+        resp = self._dispatch({"key": "reasoning", "value": "low"})
+
+        assert resp["result"]["value"] == "low"
+        assert cfg_path.read_bytes() != before, "the intentional profile write must land"
+        assert self._profile_effort(cfg_path) == "low"
+
+    def test_explicit_global_scope_with_stale_session_id_writes_profile(
+        self, tmp_path, monkeypatch
+    ):
+        """An explicit ``scope: "global"`` is not a session-scoped request."""
+        cfg_path = self._config_home(tmp_path, monkeypatch)
+        before = cfg_path.read_bytes()
+
+        resp = self._dispatch(
+            {"session_id": "no-longer-live", "key": "reasoning", "value": "xhigh", "scope": "global"}
+        )
+
+        assert resp["result"]["value"] == "xhigh"
+        assert cfg_path.read_bytes() != before
+        assert self._profile_effort(cfg_path) == "xhigh"
+
+
