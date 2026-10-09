@@ -67,7 +67,7 @@ def test_lazy_own_create_tuple_and_reasoning_without_materialization(owned, monk
     record['agent'] = None
     record['model_override'] = {'model': 'shared-model', 'provider': 'custom:workspace'}
     record['create_reasoning_override'] = {'enabled': False}
-    monkeypatch.setattr(server, '_session_default_model', lambda *a: pytest.fail('global model fallback'))
+    monkeypatch.setattr(server, '_session_default_route', lambda *a: pytest.fail('global model fallback'))
     before = db._conn.total_changes
     result = rpc(peers['B'], 'B')['result']['info']
     assert result['model'] == 'shared-model'
@@ -88,7 +88,7 @@ def test_agentless_persisted_native_row_or_explicit_unavailable_is_read_only(own
                           model_config={'provider': 'custom:workspace', 'reasoning_config': {'effort': 'low'}})
     before = db._conn.total_changes
     record['agent'] = None
-    monkeypatch.setattr(server, '_session_default_model', lambda *a: pytest.fail('global fallback'))
+    monkeypatch.setattr(server, '_session_default_route', lambda *a: pytest.fail('global fallback'))
     got = rpc(peers['B'], 'B')['result']['info']
     assert got['model'] == ('stored-model' if row else '')
     assert got['provider'] == ('custom:workspace' if row else '')
