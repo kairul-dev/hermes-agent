@@ -909,7 +909,9 @@ async def auth_logout(request: Request):
     from hermes_cli.dashboard_auth.prefix import cookie_request_origin_allowed
 
     _at, rt = read_session_cookies(request)
-    if (_at or rt) and not cookie_request_origin_allowed(request):
+    # Unconditional: a cross-site form POST may arrive without cookies yet still
+    # have the Set-Cookie deletions below applied by the browser (logout CSRF).
+    if not cookie_request_origin_allowed(request):
         raise HTTPException(status_code=403, detail="Untrusted request origin")
     if rt:
         # Best-effort revoke. Try every provider so a session minted by

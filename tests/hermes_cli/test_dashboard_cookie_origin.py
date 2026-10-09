@@ -96,6 +96,16 @@ def test_logout_rejects_sibling_origin_before_revoke(harness, monkeypatch):
     assert len(revoked) == 1
 
 
+def test_cookieless_logout_still_requires_trusted_origin(harness):
+    # A cross-site form POST can omit SameSite cookies, yet the response's
+    # Set-Cookie deletions would still be applied by the browser.
+    client, _, _ = harness
+    client.cookies.clear()
+    assert client.post("/auth/logout", headers={"Origin": "https://evil.example.test"}).status_code == 403
+    assert client.post("/auth/logout").status_code == 403
+    assert client.post("/auth/logout", headers={"Origin": ORIGIN}).status_code == 302
+
+
 def test_configured_public_origin_handles_reverse_proxy(harness, monkeypatch):
     client, _, calls = harness
     monkeypatch.setattr("hermes_cli.dashboard_auth.prefix.resolve_public_url", lambda: "https://public.example.test/hermes")
