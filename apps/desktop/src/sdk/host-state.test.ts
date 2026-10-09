@@ -203,6 +203,28 @@ describe('host.state.focusedSessionProfile', () => {
     session.$selectedStoredSessionId.set(null)
   })
 
+  it('reacts to owner hint changes without another session or connection update', async () => {
+    const { host, session } = await setup()
+    session.$sessions.set([])
+    session.$selectedStoredSessionId.set('late-owner')
+    const stop = host.state.focusedSessionOwner.subscribe(() => {})
+
+    try {
+      expect(host.state.focusedSessionOwner.get()).toBeNull()
+      session.setSessionOwnerHint('late-owner', { connectionId: 'local', profile: 'default' })
+      expect(host.state.focusedSessionOwner.get()).toEqual({ connectionId: 'local', profile: 'default' })
+      session.setSessionOwnerHint('late-owner', { connectionId: 'other', profile: 'default' })
+      expect(host.state.focusedSessionOwner.get()).toBeNull()
+      session.forgetSessionOwnerHintsForConnection('other')
+      expect(host.state.focusedSessionOwner.get()).toEqual({ connectionId: 'local', profile: 'default' })
+      session.forgetSessionOwnerHintsForSession('late-owner')
+      expect(host.state.focusedSessionOwner.get()).toBeNull()
+    } finally {
+      stop()
+      session.$selectedStoredSessionId.set(null)
+    }
+  })
+
   it('keeps the focused session connection when same-named profiles share a handle', async () => {
     const { host, profile, session } = await setup()
 

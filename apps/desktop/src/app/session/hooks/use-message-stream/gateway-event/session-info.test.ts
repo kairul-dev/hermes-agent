@@ -8,6 +8,8 @@ import {
   $currentCwd,
   $selectedStoredSessionId,
   $workspaceCwdOwner,
+  forgetSessionOwnerHintsForSession,
+  getSessionOwnerHints,
   releaseWorkspaceCwdOwner,
   setCurrentBranch,
   setCurrentCwd
@@ -60,6 +62,41 @@ function sessionInfoEvent({
 }
 
 describe('handleSessionInfoEvent workspace ownership', () => {
+  it('records the transport-qualified owner after the selected runtime confirms its durable ID', () => {
+    const id = 'owner-recovery'
+    forgetSessionOwnerHintsForSession(id)
+    $selectedStoredSessionId.set(id)
+    const ctx = sessionInfoEvent({ activeSessionId: 'runtime', explicitSid: 'runtime', storedSessionId: id, cwd: '' })
+    ctx.event.connectionId = 'local'
+    handleSessionInfoEvent(ctx)
+    expect(getSessionOwnerHints(id)).toEqual([{ connectionId: 'local', profile: 'default' }])
+    forgetSessionOwnerHintsForSession(id)
+  })
+
+  it.each(['different-runtime', 'different-stored', 'foreign-source', 'missing-connection', 'missing-profile'])(
+    'does not manufacture an owner from %s evidence',
+    kind => {
+      const id = 'owner-negative'
+      forgetSessionOwnerHintsForSession(id)
+      $selectedStoredSessionId.set(id)
+
+      const ctx = sessionInfoEvent({
+        activeSessionId: 'runtime',
+        explicitSid: kind === 'different-runtime' ? 'other' : 'runtime',
+        storedSessionId: kind === 'different-stored' ? 'other-stored' : id,
+        cwd: ''
+      })
+
+      ctx.event.connectionId = kind === 'missing-connection' ? undefined : 'local'
+
+      if (kind === 'missing-profile') {ctx.event.profile = undefined}
+
+      if (kind === 'foreign-source') {ctx.fromActiveSource = () => false}
+      handleSessionInfoEvent(ctx)
+      expect(getSessionOwnerHints(id)).toEqual([])
+    }
+  )
+
   beforeEach(() => {
     $selectedStoredSessionId.set(null)
     $workspaceCwdOwner.set(null)

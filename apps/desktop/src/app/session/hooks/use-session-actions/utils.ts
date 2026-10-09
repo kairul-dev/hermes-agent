@@ -1635,6 +1635,13 @@ export function overlayConcurrentMessageChanges(
 ): ChatMessage[] {
   const baselineById = new Map(baselineMessages.map(message => [message.id, message]))
   const nextIndexById = new Map(nextMessages.map((message, index) => [message.id, index]))
+  const nextUserRowIds = new Set(
+    nextMessages.filter(message => message.role === 'user').flatMap(message =>
+      typeof message.rowId === 'number' && Number.isSafeInteger(message.rowId) && message.rowId > 0
+        ? [message.rowId]
+        : []
+    )
+  )
   let changed = false
   const overlaid = [...nextMessages]
   const dropped = new Set<string>()
@@ -1724,6 +1731,14 @@ export function overlayConcurrentMessageChanges(
         changed = true
       }
 
+      continue
+    }
+
+    // A submit accepted while activation waited on REST can already be in the
+    // fetched page under its durable UI id. The receipt proves this exact user
+    // occurrence; appending its optimistic id would paint the prompt twice.
+    // Unknown ids and distinct repeated sends still take the overlay path.
+    if (current.role === 'user' && current.rowId !== undefined && nextUserRowIds.has(current.rowId)) {
       continue
     }
 

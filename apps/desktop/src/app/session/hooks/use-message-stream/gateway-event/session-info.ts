@@ -15,6 +15,7 @@ import {
   $selectedStoredSessionId,
   $sessions,
   applySessionTitle,
+  getSessionOwnerHints,
   sessionMatchesStoredId,
   setActiveSessionId,
   setCurrentBranch,
@@ -25,6 +26,7 @@ import {
   setCurrentReasoningEffortWire,
   setCurrentServiceTier,
   setCurrentUsage,
+  setSessionOwnerHint,
   setTerminalBackend,
   setWorkspaceCwdOwner,
   setYoloActive
@@ -148,6 +150,25 @@ export function handleSessionInfoEvent(ctx: GatewayEventContext): boolean {
   } = deps
 
   if (event.type === 'session.info') {
+    // An untagged list row resumes on the ambient socket. Once that socket
+    // confirms this pane's exact runtime AND durable id, retain its owner for
+    // SDK consumers. Never infer local ownership from an unqualified event or
+    // overwrite conflicting hints (duplicate IDs across sources stay ambiguous).
+    const selectedId = $selectedStoredSessionId.get()
+
+    if (
+      explicitSid &&
+      isActiveEvent &&
+      fromActiveSource() &&
+      selectedId &&
+      payload?.stored_session_id === selectedId &&
+      event.connectionId &&
+      event.profile &&
+      getSessionOwnerHints(selectedId).length === 0
+    ) {
+      setSessionOwnerHint(selectedId, { connectionId: event.connectionId, profile: event.profile })
+    }
+
     // A rebuilt runtime (mid-conversation model/provider switch) speaks under
     // a NEW session_id. Before scoping anything by isActiveEvent, check
     // whether this event is the rebuilt runtime announcing itself for the

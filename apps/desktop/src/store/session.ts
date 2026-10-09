@@ -1186,6 +1186,8 @@ export const $sessionResumeRequest = atom<SessionResumeRequest | null>(null)
 const SESSION_OWNER_HINT_LIMIT = 256
 const SESSION_OWNER_HINTS_KEY = 'hermes.desktop.sessionOwnerHints.v1'
 const sessionOwnerHints = new Map<string, { id: string; route: SessionOwnerRoute }>()
+/** Invalidates owner projections when hints change without a list refresh. */
+export const $sessionOwnerHintsRevision = atom(0)
 
 function sessionOwnerHintKey(sessionId: string, route: Pick<SessionOwnerRoute, 'connectionId' | 'profile'>): string {
   return JSON.stringify([route.connectionId.trim(), route.profile.trim() || 'default', sessionId])
@@ -1201,6 +1203,7 @@ function normalizeOwnerRoute(route: SessionOwnerRoute): SessionOwnerRoute {
 }
 
 function persistSessionOwnerHints(): void {
+  $sessionOwnerHintsRevision.set($sessionOwnerHintsRevision.get() + 1)
   writeJson(
     SESSION_OWNER_HINTS_KEY,
     sessionOwnerHints.size === 0 ? null : [...sessionOwnerHints.values()].map(entry => [entry.id, entry.route])
