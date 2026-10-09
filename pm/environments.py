@@ -513,8 +513,14 @@ def activate_dependencies(project_root: Path) -> None:
             return  # External/Nix interpreter owns its original sys.path.
     if not selected.is_dir():
         raise RuntimeError(f"dependency environment has no site-packages: {selected}")
-    # Defend direct callers and a selection changed since bootstrap's read.
-    if python := _dependency_relaunch_python(environment):
+    # Defend direct callers and a selection changed since bootstrap's read. A missing or inconsistent
+    # interpreter is bootstrap's error to report (dependency_relaunch_python); activation only refuses
+    # when a usable interpreter of the right ABI exists to relaunch with.
+    try:
+        python = _dependency_relaunch_python(environment)
+    except RuntimeError:
+        python = None
+    if python:
         version = venv_python_version(environment)
         raise RuntimeError(f"dependency environment requires Python {version[0]}.{version[1]}; "
                            f"relaunch with {python} before activating dependencies")

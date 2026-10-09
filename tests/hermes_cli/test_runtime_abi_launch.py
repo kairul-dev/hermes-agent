@@ -88,7 +88,10 @@ def test_launch_and_abi_handoff_converge_without_dropping_completion(
         ready = True
 
     monkeypatch.setattr(pm, "sync_venv", sync)
-    monkeypatch.setattr(venv_sync.subprocess, "call", lambda command, **kw: tails.append(command) or 0)
+    # The completion tail runs through the update-custody launcher (not a bare subprocess.call).
+    from types import SimpleNamespace
+    from hermes_cli import update_custody
+    monkeypatch.setattr(update_custody, "run", lambda command, **kw: tails.append(command) or SimpleNamespace(returncode=0))
     pending = venv_sync.completion_pending_path(root)
     if obligation == "pending-tail":
         venv_sync.arm_completion(root)
