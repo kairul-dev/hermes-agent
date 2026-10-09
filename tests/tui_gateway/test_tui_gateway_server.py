@@ -16157,7 +16157,7 @@ def test_session_most_recent_honors_params_profile(monkeypatch, tmp_path):
         def list_sessions_rich(self, **kwargs):
             return [
                 {"id": "tool-noise", "source": "tool", "title": "t", "started_at": 9},
-                {"id": "ml-tip", "source": "desktop", "title": "M", "started_at": 3},
+                {"id": "ml-tip", "source": "desktop", "title": "M", "started_at": 3, "user_id": None},
             ]
 
         def close(self):
@@ -18053,7 +18053,7 @@ def test_session_most_recent_returns_first_non_denied(monkeypatch):
         def list_sessions_rich(self, *, source=None, limit=200, order_by_last_active=False, compact_rows=False):
             return [
                 {"id": "tool-1", "source": "tool", "title": "noise", "started_at": 100},
-                {"id": "tui-1", "source": "tui", "title": "real", "started_at": 99},
+                {"id": "tui-1", "source": "tui", "title": "real", "started_at": 99, "user_id": None},
             ]
 
     monkeypatch.setattr(server, "_get_db", lambda: _DB())
@@ -18089,7 +18089,7 @@ def test_session_most_recent_skips_unknown_source_rows(monkeypatch):
         def list_sessions_rich(self, *, source=None, limit=200, order_by_last_active=False, compact_rows=False):
             return [
                 {"id": "guard-1", "source": "unknown", "title": "", "started_at": 101},
-                {"id": "tui-1", "source": "tui", "title": "real", "started_at": 100},
+                {"id": "tui-1", "source": "tui", "title": "real", "started_at": 100, "user_id": None},
             ]
 
     monkeypatch.setattr(server, "_get_db", lambda: _DB())

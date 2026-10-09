@@ -156,9 +156,12 @@ def _listing_rows(db, limit: int, *, require_owner: bool = False, **kwargs) -> l
     policy = _shared_runtime_policy_state()
     if policy is None:
         return []
+    caller = current_transport()
+    if caller is None and policy is False:
+        caller = _stdio_transport  # ordinary mode: an in-process caller is the verified local owner
     rows = db.list_sessions_rich(source=None, limit=limit, order_by_last_active=True, compact_rows=True, **kwargs)
     if require_owner or policy is not False:
-        rows = [row for row in rows if _shared_record_owner_matches(current_transport(), row, "user_id")]
+        rows = [row for row in rows if _shared_record_owner_matches(caller, row, "user_id")]
     return [row for row in rows if not _denied_source(row)]
 
 
