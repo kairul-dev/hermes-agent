@@ -394,7 +394,7 @@ def _resolve_secret(cfg_section: dict) -> bytes:
 def register(ctx) -> None:
     """Plugin entry — registers BasicAuthProvider when credentials exist.
 
-    Loopback / ``--insecure`` operators and anyone using the OAuth
+    Loopback operators and anyone using the OAuth
     provider leave ``dashboard.basic_auth`` unset, so this plugin is a
     no-op for them. When username + (password or password_hash) are
     configured, it registers a password provider that the login page
@@ -423,7 +423,7 @@ def register(ctx) -> None:
             "HERMES_DASHBOARD_BASIC_AUTH_USERNAME is empty). Set a username "
             "and a password (or password_hash) under dashboard.basic_auth in "
             "config.yaml to enable username/password dashboard login, or use "
-            "the OAuth provider, or pass --insecure to skip the auth gate."
+            "the OAuth provider. Non-loopback dashboards require an auth provider."
         )
         logger.debug("dashboard-auth-basic: %s", LAST_SKIP_REASON)
         return

@@ -270,7 +270,7 @@ async def auth_login(request: Request, provider: str, next: str = ""):
 
 
 def _validate_loopback_redirect_uri(raw: str) -> str:
-    """Return ``raw`` if it is a safe loopback redirect_uri, else raise.
+    """Return a canonical safe loopback redirect_uri, else raise.
 
     RFC 8252 §7.3 restricts native-app redirects to the loopback interface.
     We accept only ``http://127.0.0.1[:port]/...`` and ``http://[::1][:port]/...``
@@ -283,17 +283,24 @@ def _validate_loopback_redirect_uri(raw: str) -> str:
     into an open redirect that leaks a live authorization code to an
     arbitrary origin — so this check is a security boundary, not ergonomics.
     """
-    from urllib.parse import urlparse
+    import re
+    from urllib.parse import urlsplit, urlunsplit
 
     if not raw:
         raise HTTPException(status_code=400, detail="redirect_uri required")
-    parsed = urlparse(raw)
+    if "\\" in raw or any(ord(c) <= 32 or ord(c) == 127 for c in raw):
+        raise HTTPException(status_code=400, detail="Invalid native redirect_uri")
+    try:
+        parsed = urlsplit(raw)
+        host = (parsed.hostname or "").lower()
+        port = parsed.port
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid native redirect_uri")
     if parsed.scheme != "http":
         raise HTTPException(
             status_code=400,
             detail="native redirect_uri must be http:// on the loopback interface",
         )
-    host = (parsed.hostname or "").lower()
     if host not in ("127.0.0.1", "::1"):
         raise HTTPException(
             status_code=400,
@@ -302,7 +309,15 @@ def _validate_loopback_redirect_uri(raw: str) -> str:
                 "(127.0.0.1 / ::1)"
             ),
         )
-    return raw
+    if (not re.fullmatch(r"(?:127\.0\.0\.1|\[::1\])(?::[0-9]+)?", parsed.netloc)
+            or parsed.username is not None or parsed.password is not None or parsed.fragment):
+        raise HTTPException(status_code=400, detail="Invalid native redirect_uri")
+    authority = "[::1]" if host == "::1" else host
+    if port is not None:
+        if port == 0:
+            raise HTTPException(status_code=400, detail="Invalid native redirect_uri port")
+        authority += f":{port}"
+    return urlunsplit(("http", authority, parsed.path or "/", parsed.query, ""))
 
 
 @router.get("/auth/native/authorize", name="auth_native_authorize")
@@ -341,7 +356,7 @@ async def auth_native_authorize(
         )
     if not code_challenge:
         raise HTTPException(status_code=400, detail="code_challenge required")
-    _validate_loopback_redirect_uri(redirect_uri)
+    redirect_uri = _validate_loopback_redirect_uri(redirect_uri)
 
     # Resolve the provider. With exactly one brokerable session provider
     # registered (the common hosted case) an empty ``provider`` selects it,
@@ -636,6 +651,8 @@ def _validate_post_login_target(raw: str) -> str:
         return ""
     from urllib.parse import unquote
     decoded = unquote(raw)
+    if "\\" in decoded or any(ord(c) < 32 or ord(c) == 127 for c in decoded):
+        return ""
     if not decoded.startswith("/") or decoded.startswith("//"):
         return ""
     # Don't loop back to login pages or auth flow.
@@ -889,7 +906,11 @@ async def auth_password_login(request: Request, body: _PasswordLoginBody):
 
 @router.post("/auth/logout", name="auth_logout")
 async def auth_logout(request: Request):
+    from hermes_cli.dashboard_auth.prefix import cookie_request_origin_allowed
+
     _at, rt = read_session_cookies(request)
+    if (_at or rt) and not cookie_request_origin_allowed(request):
+        raise HTTPException(status_code=403, detail="Untrusted request origin")
     if rt:
         # Best-effort revoke. Try every provider so a session minted by
         # any registered provider is revoked correctly. Failures are

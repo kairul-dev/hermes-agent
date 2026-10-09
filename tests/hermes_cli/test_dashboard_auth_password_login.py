@@ -373,3 +373,12 @@ class TestLoginPageRender:
         finally:
             clear_providers()
 
+
+
+@pytest.mark.parametrize("target", ["/\\evil.example/path", "/%5cevil.example/path", "/%09/evil.example", "//evil.example/path"])
+def test_password_login_rejects_browser_normalized_external_targets(gated_app, target):
+    response = gated_app.post("/auth/password-login", json={
+        "provider": "testpw", "username": "admin", "password": "hunter2", "next": target,
+    })
+    assert response.status_code == 200
+    assert response.json()["next"] == "/"

@@ -796,7 +796,7 @@ def register(ctx) -> None:
     Registers :class:`SelfHostedOIDCProvider` only when both an issuer and a
     client_id are configured (via ``HERMES_DASHBOARD_OIDC_*`` env vars or the
     ``dashboard.oauth.self_hosted`` block in config.yaml). Operator-owned
-    loopback / ``--insecure`` dashboards leave these unset, so the plugin is a
+    loopback dashboards leave these unset, so the plugin is a
     no-op for them.
 
     On skip, writes a reason to :data:`LAST_SKIP_REASON` that names BOTH
@@ -831,8 +831,8 @@ def register(ctx) -> None:
             "issuer and a client_id — either as env vars "
             "(HERMES_DASHBOARD_OIDC_ISSUER + HERMES_DASHBOARD_OIDC_CLIENT_ID) "
             "or under dashboard.oauth.self_hosted.{issuer,client_id} in "
-            "config.yaml — or pass --insecure to skip the OAuth gate "
-            "entirely. (issuer set: %s; client_id set: %s)"
+            "config.yaml — or configure another supported auth provider. "
+            "Non-loopback dashboards require authentication. (issuer set: %s; client_id set: %s)"
             % (bool(issuer), bool(client_id))
         )
         logger.debug("dashboard-auth-self-hosted: %s", LAST_SKIP_REASON)
