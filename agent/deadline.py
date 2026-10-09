@@ -402,8 +402,10 @@ async def run_bounded_async(
     timer.start()
     watchdog: Optional[threading.Timer] = None
     if dump_on_blocked_loop:
+        # ``timeout_s`` is already clamped and MAX_SAFE_TIMEOUT_S reserves headroom
+        # below TIMEOUT_MAX, so re-clamping would erase the grace at the cap.
         watchdog = threading.Timer(
-            clamp_timeout(timeout_s + _LOOP_BLOCKED_DUMP_GRACE_S), _watchdog_check
+            timeout_s + _LOOP_BLOCKED_DUMP_GRACE_S, _watchdog_check
         )
         watchdog.daemon = True
         watchdog.start()
