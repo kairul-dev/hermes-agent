@@ -399,3 +399,38 @@ class TestCodexQuotaCooldown:
         (codex,) = au.build_account_usage_panel(refresh=True)
 
         assert codex["stale"] is True
+
+
+def test_stale_fallback_is_not_republished_as_fresh_by_a_later_cache_hit(monkeypatch):
+    """A forced refresh that fails inside the TTL returns a stale copy; the NEXT
+    ordinary call (remount, profile round-trip, another client) is a cache hit
+    that must keep saying stale, not quietly clear the degraded state."""
+    table = {"openai-codex": _snapshot("openai-codex", _win("five_hour", 38.0)), "anthropic": None}
+    calls = _install(monkeypatch, table)
+    monkeypatch.setattr(au, "_panel_has_credentials", lambda provider: True)
+    au.build_account_usage_panel()
+
+    table["openai-codex"] = None
+    (forced,) = au.build_account_usage_panel(refresh=True)
+    assert forced["stale"] is True
+    fetches = calls["openai-codex"]
+
+    (later,) = au.build_account_usage_panel()
+
+    assert later["stale"] is True
+    assert calls["openai-codex"] == fetches  # still served from cache, no extra fetch
+
+
+def test_a_later_success_clears_the_stale_flag(monkeypatch):
+    table = {"openai-codex": _snapshot("openai-codex", _win("five_hour", 38.0)), "anthropic": None}
+    _install(monkeypatch, table)
+    monkeypatch.setattr(au, "_panel_has_credentials", lambda provider: True)
+    au.build_account_usage_panel()
+    table["openai-codex"] = None
+    au.build_account_usage_panel(refresh=True)
+
+    table["openai-codex"] = _snapshot("openai-codex", _win("five_hour", 41.0))
+    (fresh,) = au.build_account_usage_panel(refresh=True)
+
+    assert fresh["stale"] is False
+    assert fresh["windows"][0]["used_percent"] == 41.0

@@ -1046,7 +1046,13 @@ def _fetch_panel_entry(provider: str, label: str, home: str, refresh: bool) -> O
             with _panel_lock:
                 _panel_cache.pop(key, None)
             return None
-        return {**cached[1], "stale": True}
+        degraded = {**cached[1], "stale": True}
+        with _panel_lock:
+            # Keep the ORIGINAL fetch time (the stale-age cap measures from the
+            # last good fetch) but store the degraded copy: a cache hit inside
+            # the TTL must not republish the old numbers as fresh.
+            _panel_cache[key] = (cached[0], degraded)
+        return degraded
 
     with _panel_lock:
         _panel_cache[key] = (time.monotonic(), entry)

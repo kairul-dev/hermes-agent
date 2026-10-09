@@ -1859,11 +1859,33 @@ def _(rid, params: dict) -> dict:
     providers that have usable credentials; ``refresh: true`` bypasses the
     60s per-profile cache. Fail-open: any error yields an empty list so the
     panel just stays hidden.
+
+    ``profile`` selects whose accounts to read. ``@_profile_scoped`` binds that
+    profile's HERMES_HOME (Codex logins live in its auth.json); the Claude token
+    can live in its ``.env``, so its secret scope is bound too — otherwise the
+    read fails closed under multiplexing or falls back to the LAUNCH profile's
+    environment and shows the wrong account. A profile this host does not know
+    answers empty rather than quietly answering for the launch profile.
     """
+    import contextlib
+
     try:
         from agent.account_usage import build_account_usage_panel
 
-        return _ok(rid, {"providers": build_account_usage_panel(refresh=bool(params.get("refresh")))})
+        profile = str(params.get("profile") or "").strip()
+        with contextlib.ExitStack() as stack:
+            if profile:
+                from hermes_cli import profiles as profiles_mod
+
+                if not profiles_mod.profile_exists(profile):
+                    return _ok(rid, {"providers": []})
+                home = _profile_home(profile)
+                if home is not None:
+                    from agent.secret_scope import build_profile_secret_scope, reset_secret_scope, set_secret_scope
+
+                    token = set_secret_scope(build_profile_secret_scope(home))
+                    stack.callback(reset_secret_scope, token)
+            return _ok(rid, {"providers": build_account_usage_panel(refresh=bool(params.get("refresh")))})
     except Exception:
         logger.debug("account.usage failed (fail-open)", exc_info=True)
         return _ok(rid, {"providers": []})
