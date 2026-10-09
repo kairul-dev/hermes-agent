@@ -1,3 +1,5 @@
+import { join } from 'node:path'
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -26,16 +28,16 @@ describe('terminalSetup helpers', () => {
   it('detects VS Code family terminals from environment', () => {
     expect(detectVSCodeLikeTerminal({ CURSOR_TRACE_ID: 'x' } as NodeJS.ProcessEnv)).toBe('cursor')
     expect(detectVSCodeLikeTerminal({ VSCODE_GIT_ASKPASS_MAIN: '/tmp/windsurf' } as NodeJS.ProcessEnv)).toBe('windsurf')
-    expect(detectVSCodeLikeTerminal({ TERM_PROGRAM: 'vscode' } as NodeJS.ProcessEnv)).toBe('vscode')
+    expect(detectVSCodeLikeTerminal({ APPDATA: '/tmp/fake-appdata', TERM_PROGRAM: 'vscode' } as NodeJS.ProcessEnv)).toBe('vscode')
     expect(detectVSCodeLikeTerminal({} as NodeJS.ProcessEnv)).toBeNull()
   })
 
   it('computes VS Code style config dirs cross-platform', () => {
     expect(getVSCodeStyleConfigDir('Code', 'darwin', {} as NodeJS.ProcessEnv, '/home/me')).toBe(
-      '/home/me/Library/Application Support/Code/User'
+      join('/home/me', 'Library', 'Application Support', 'Code', 'User')
     )
     expect(getVSCodeStyleConfigDir('Code', 'linux', {} as NodeJS.ProcessEnv, '/home/me')).toBe(
-      '/home/me/.config/Code/User'
+      join('/home/me', '.config', 'Code', 'User')
     )
     expect(
       getVSCodeStyleConfigDir(
@@ -44,7 +46,7 @@ describe('terminalSetup helpers', () => {
         { APPDATA: 'C:/Users/me/AppData/Roaming' } as NodeJS.ProcessEnv,
         '/home/me'
       )
-    ).toBe('C:/Users/me/AppData/Roaming/Code/User')
+    ).toBe(join('C:/Users/me/AppData/Roaming', 'Code', 'User'))
   })
 
   it('strips line comments from keybindings JSON', () => {
@@ -339,7 +341,7 @@ describe('configureTerminalKeybindings', () => {
     const readMissing = vi.fn().mockRejectedValue(Object.assign(new Error('missing'), { code: 'ENOENT' }))
     await expect(
       shouldPromptForTerminalSetup({
-        env: { TERM_PROGRAM: 'vscode' } as NodeJS.ProcessEnv,
+        env: { APPDATA: '/tmp/fake-appdata', TERM_PROGRAM: 'vscode' } as NodeJS.ProcessEnv,
         fileOps: { readFile: readMissing }
       })
     ).resolves.toBe(true)
@@ -387,7 +389,7 @@ describe('configureTerminalKeybindings', () => {
 
     await expect(
       shouldPromptForTerminalSetup({
-        env: { TERM_PROGRAM: 'vscode' } as NodeJS.ProcessEnv,
+        env: { APPDATA: '/tmp/fake-appdata', TERM_PROGRAM: 'vscode' } as NodeJS.ProcessEnv,
         fileOps: { readFile: readComplete }
       })
     ).resolves.toBe(false)
@@ -447,7 +449,7 @@ describe('configureTerminalKeybindings', () => {
 
     await expect(
       shouldPromptForTerminalSetup({
-        env: { TERM_PROGRAM: 'vscode' } as NodeJS.ProcessEnv,
+        env: { APPDATA: '/tmp/fake-appdata', TERM_PROGRAM: 'vscode' } as NodeJS.ProcessEnv,
         fileOps: { readFile: readLegacy }
       })
     ).resolves.toBe(true)

@@ -381,11 +381,19 @@ async function listBranches(repoPath, gitBin) {
   }
 
   try {
-    const [localOut, remoteOut] = await Promise.all([
+    const [local, remote] = await Promise.allSettled([
       runGit(gitBin, ['for-each-ref', '--format=%(refname:short)', '--sort=-committerdate', 'refs/heads'], resolved),
       runGit(gitBin, ['for-each-ref', '--format=%(refname:short)', '--sort=-committerdate', 'refs/remotes'], resolved)
     ])
 
+    // Settle both probes before returning: a rejected probe must not leave
+    // its sibling holding the directory open on Windows.
+    if (local.status === 'rejected' || remote.status === 'rejected') {
+      return []
+    }
+
+    const localOut = local.value
+    const remoteOut = remote.value
     const trees = await listWorktrees(resolved, gitBin)
     const pathByBranch = new Map(trees.filter(tree => tree.branch).map(tree => [tree.branch, tree.path]))
     const trunk = await defaultBranch(gitBin, resolved)

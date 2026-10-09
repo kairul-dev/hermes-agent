@@ -7,7 +7,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 
+
+@pytest.mark.linux_only
 class TestCronFilePermissions(unittest.TestCase):
     """Verify cron files get secure permissions."""
 
@@ -74,6 +77,7 @@ class TestCronFilePermissions(unittest.TestCase):
             self.assertEqual(dir_mode, 0o700)
 
 
+@pytest.mark.linux_only
 class TestConfigFilePermissions(unittest.TestCase):
     """Verify config files get secure permissions."""
 

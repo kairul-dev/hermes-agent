@@ -30,6 +30,7 @@ Bind safety: with no token configured, the server binds 127.0.0.1 only.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
 import os
@@ -234,7 +235,22 @@ class A2ARequestHandler(BaseHTTPRequestHandler):
         scheme = (self.headers.get("X-Forwarded-Proto", "") or "http").split(",")[0].strip()
         return f"{scheme}://{host}/"
 
+    def _tokenless_host_allowed(self) -> bool:
+        host = self.headers.get("Host", "")
+        authority = re.fullmatch(
+            r"(?:127\.0\.0\.1|localhost|\[::1\])(?::([0-9]{1,5}))?", host, re.IGNORECASE
+        )
+        try:
+            local_peer = ipaddress.ip_address(self.client_address[0]).is_loopback
+        except (ValueError, IndexError):
+            return False
+        return bool(local_peer and authority and
+                    int(authority.group(1) or 80) == self.server.server_address[1])
+
     def do_GET(self):  # noqa: N802
+        if self.adapter._security_context.localhost_only() and not self._tokenless_host_allowed():
+            self._json(403, {"error": "untrusted request host"})
+            return
         route = self.adapter._route_for_path(self.path)
         agent = route["agent"]
         subpath = route["subpath"].rstrip("/") or "/"
@@ -265,6 +281,17 @@ class A2ARequestHandler(BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802
         adapter = self.adapter
         client_ip = self.client_address[0] if self.client_address else ""
+
+        if adapter._security_context.localhost_only():
+            # Loopback sockets identify local programs, but browsers can also
+            # reach them. Reject rebinding authorities and simple form POSTs.
+            if (not self._tokenless_host_allowed()
+                    or "Origin" in self.headers or "Sec-Fetch-Site" in self.headers):
+                self._json(403, protocol.jsonrpc_error(None, protocol.ERR_UNAUTHORIZED, "untrusted request origin"))
+                return
+            if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
+                self._json(415, protocol.jsonrpc_error(None, protocol.ERR_PARSE, "application/json required"))
+                return
 
         # Identity comes from the presented credential (or the socket in
         # localhost-only mode) — never from the request body.

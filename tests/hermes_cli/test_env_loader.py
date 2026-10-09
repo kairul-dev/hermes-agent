@@ -6,6 +6,23 @@ import sys
 from hermes_cli.env_loader import load_hermes_dotenv
 
 
+def test_default_dotenv_uses_canonical_home(tmp_path, monkeypatch):
+    from hermes_constants import get_hermes_home
+
+    monkeypatch.delenv("HERMES_HOME", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "AppData" / "Local"))
+    home = get_hermes_home()
+    home.mkdir(parents=True, exist_ok=True)
+    env_file = home / ".env"
+    env_file.write_text("AUDIT_HOME_MARKER=canonical\n", encoding="utf-8")
+    monkeypatch.delenv("AUDIT_HOME_MARKER", raising=False)
+
+    assert load_hermes_dotenv(load_external_secrets=False) == [env_file]
+    assert os.environ["AUDIT_HOME_MARKER"] == "canonical"
+
+
 def test_recovered_update_retry_skips_external_secret_sources(tmp_path, monkeypatch):
     """The post-recovery updater must not remap native vault dependencies."""
     import hermes_cli.env_loader as env_loader

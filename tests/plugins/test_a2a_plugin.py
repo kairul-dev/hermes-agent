@@ -1648,7 +1648,17 @@ if '--resume' not in sys.argv:
     con.commit()
 print('fake reply')
 """)
-        hermes.chmod(0o755)
+        # Execute the fake CLI through Python on every host; extensionless
+        # shebang executables are not a Windows command resolution mechanism.
+        import sys
+        import plugins.platforms.a2a.adapter as adapter_module
+        real_run = adapter_module.subprocess.run
+
+        def run_fake(cmd, *args, **kwargs):
+            assert cmd[0] == "hermes"
+            return real_run([sys.executable, str(hermes), *cmd[1:]], *args, **kwargs)
+
+        monkeypatch.setattr(adapter_module.subprocess, "run", run_fake)
         monkeypatch.setenv("PATH", str(fakebin) + os.pathsep + os.environ.get("PATH", ""))
         monkeypatch.setenv("FAKE_HERMES_CALLS", str(calls))
         monkeypatch.setattr("plugins.platforms.a2a.adapter._profile_home", lambda profile: str(profile_home))

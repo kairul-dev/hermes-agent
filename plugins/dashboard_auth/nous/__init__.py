@@ -3,7 +3,7 @@
 Implements ``nous-account-service/docs/agent-dashboard-oauth-contract.md``
 (PR #180). The plugin auto-loads (bundled, kind=backend) but only registers
 its provider when a client_id is configured — either via ``config.yaml`` or
-via the Portal-injected env var — so loopback / ``--insecure`` operators
+via the Portal-injected env var — so loopback operators
 are unaffected.
 
 Configuration surfaces (env wins over config.yaml when set non-empty):
@@ -620,7 +620,7 @@ def register(ctx) -> None:
     reason mentions BOTH configuration surfaces so operators don't
     guess wrong about which one to populate.
 
-    Operator-owned dashboards (loopback / ``--insecure``) leave both
+    Operator-owned loopback dashboards leave both
     surfaces unset, so this plugin is a no-op for them. The gate-
     engagement layer (``hermes_cli.web_server.should_require_auth`` +
     the fail-closed check in ``start_server``) handles the "public bind
@@ -640,8 +640,8 @@ def register(ctx) -> None:
             "'agent:{instance_id}') when it deploys a Hermes Agent "
             "instance — set it to your provisioned client id (either "
             "as an env var or under dashboard.oauth.client_id in "
-            "config.yaml), or pass --insecure to skip the OAuth gate "
-            "entirely."
+            "config.yaml), or configure another supported auth provider. "
+            "Non-loopback dashboards require authentication."
         )
         logger.debug("dashboard-auth-nous: %s", LAST_SKIP_REASON)
         return

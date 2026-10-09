@@ -254,6 +254,8 @@ def _safe_next_target(request: Request) -> str:
     # (protocol-relative URL — would open-redirect to an attacker host).
     if not path or not path.startswith("/") or path.startswith("//"):
         return ""
+    if "\\" in path or any(ord(c) < 32 or ord(c) == 127 for c in path):
+        return ""
     # Don't redirect back to the auth routes themselves — that loops.
     if any(
         path == p or path.startswith(p)
@@ -373,6 +375,11 @@ async def gated_auth_middleware(
         return _unauth_response(request, reason="invalid_or_expired_session")
 
     at, _rt = read_session_cookies(request)
+    if (at or _rt) and request.method not in {"GET", "HEAD", "OPTIONS"}:
+        from hermes_cli.dashboard_auth.prefix import cookie_request_origin_allowed
+
+        if not cookie_request_origin_allowed(request):
+            return JSONResponse({"detail": "Untrusted request origin"}, status_code=403)
     provider_hint = read_session_provider(request)
     if not at and not _rt:
         # Neither token present — no session at all. Nothing to verify or

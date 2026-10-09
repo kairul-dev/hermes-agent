@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import shlex
 import sys
 
 import pytest
@@ -59,7 +60,7 @@ def test_write_reply_classifies_when_reason_omitted(home):
 def _run_waiter(home, envelope):
     cmd = bot_relay.waiter_command(home, envelope)
     return subprocess.run(
-        ["bash", "-c", cmd], capture_output=True, text=True, timeout=30
+        shlex.split(cmd), capture_output=True, text=True, timeout=30
     )
 
 

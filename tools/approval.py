@@ -3499,7 +3499,7 @@ def _get_approval_timeout() -> int:
     of minutes; 60s proved too tight in practice (Telegram taps landed after
     the wait had already failed closed).
 
-    Clamped to ``agent.deadline.MAX_SAFE_TIMEOUT_S`` (1 year — semantically
+    Clamped to ``agent.deadline.MAX_SAFE_TIMEOUT_S`` (at most 1 year — semantically
     unbounded): a very large configured value overflows ``time_t`` inside
     ``Thread.join(timeout=...)`` / ``Lock.acquire(timeout=...)`` on macOS,
     and before this clamp a single oversized ``approvals.timeout`` crashed
@@ -3519,7 +3519,7 @@ def _get_approval_timeout() -> int:
         # Fail CLOSED: returning the raw value here would re-open the exact
         # time_t overflow this clamp exists to prevent. ~1 year, matching
         # agent.deadline.MAX_SAFE_TIMEOUT_S.
-        safe_cap = 365 * 24 * 3600
+        safe_cap = int(min(365 * 24 * 3600, threading.TIMEOUT_MAX - HUMAN_WAIT_MARGIN_S))
     if raw > safe_cap:
         logger.warning(
             "approvals.timeout=%s exceeds the platform-safe maximum; "

@@ -54,6 +54,19 @@ def _args(**kw):
     return SimpleNamespace(**kw)
 
 
+def test_early_interface_uses_canonical_home(tmp_path, monkeypatch):
+    from hermes_constants import get_hermes_home
+
+    monkeypatch.delenv("HERMES_HOME", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "AppData" / "Local"))
+    home = get_hermes_home()
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "config.yaml").write_text("display:\n  interface: tui\n", encoding="utf-8")
+    assert m._config_default_interface_early() == "tui"
+
+
 def _fake_tty(monkeypatch, interactive: bool):
     """Pin stdin/stdout TTY-ness — pytest's capture is never a real TTY."""
     import sys as _sys

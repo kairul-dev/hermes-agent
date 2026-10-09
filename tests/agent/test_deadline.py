@@ -67,6 +67,45 @@ class TestClampTimeout:
         assert lock.acquire(timeout=big)
         lock.release()
 
+    def test_approval_margin_is_platform_safe(self, monkeypatch):
+        from tools import approval
+
+        monkeypatch.setattr(approval, "_get_approval_config", lambda: {"timeout": 10**18})
+        ceiling = approval.human_wait_ceiling()
+        assert ceiling <= threading.TIMEOUT_MAX
+        lock = threading.Lock()
+        assert lock.acquire(timeout=ceiling)
+        lock.release()
+
+    def test_blocked_loop_watchdog_keeps_grace_above_capped_deadline(self, monkeypatch):
+        from agent import deadline
+
+        intervals = []
+
+        class _RecordingTimer:
+            def __init__(self, interval, function):
+                intervals.append(interval)
+
+            daemon = False
+
+            def start(self):
+                pass
+
+            def cancel(self):
+                pass
+
+        monkeypatch.setattr(deadline.threading, "Timer", _RecordingTimer)
+
+        async def _quick():
+            return 1
+
+        result = asyncio.run(deadline.run_bounded_async(_quick(), 10**18))
+        assert result.value == 1
+        expiry, watchdog = intervals
+        assert expiry == MAX_SAFE_TIMEOUT_S
+        assert watchdog == expiry + deadline._LOOP_BLOCKED_DUMP_GRACE_S
+        assert watchdog <= threading.TIMEOUT_MAX
+
     def test_nan_and_junk_treated_as_unbounded(self):
         assert clamp_timeout(float("nan")) is None
         assert clamp_timeout("not-a-number") is None  # type: ignore[arg-type]
