@@ -5297,6 +5297,20 @@ def _resolve_api_key_branch(req: _ResolveRequest, pconfig: Any, resolve_creds: C
             raw_base_url = normalize_actual_base_url(raw_base_url)
             if not api_key and is_actual_local_base_url(raw_base_url):
                 api_key = ACTUAL_LOCAL_NOAUTH_PLACEHOLDER
+    if not api_key and req.task:
+        # An auxiliary-only native transport may authenticate its explicitly configured
+        # route with a different provider's credential (for example a decision-model
+        # aggregator). Do not add that credential to global provider auto-detection.
+        try:
+            from providers import get_provider_profile
+            profile = get_provider_profile(provider)
+            resolve_aux_key = getattr(profile, "resolve_auxiliary_api_key", None)
+            if callable(resolve_aux_key):
+                api_key = str(resolve_aux_key(base_url=raw_base_url, task=req.task) or "").strip()
+        except Exception:
+            # Credential lookup failures remain unavailable; no anonymous/default client.
+            logger.debug("resolve_provider_client: auxiliary credential lookup failed for %s", provider)
+            return None, None
     if not api_key:
         tried_sources = list(pconfig.api_key_env_vars) + (["gh auth token"] if provider == "copilot" else [])
         logger.debug("resolve_provider_client: provider %s has no API key configured (tried: %s)",
