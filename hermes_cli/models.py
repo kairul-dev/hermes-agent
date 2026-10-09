@@ -1946,8 +1946,13 @@ def _spawn_swr_refresh(cache_key: str, refresh_fn=None) -> None:
 
 
 def _provider_models_cache_path() -> Path:
+    """Keep Desktop catalogs separate from legacy Forge's incompatible cache keys.
+
+    Do not import the legacy cache: account-scoped models still require discovery
+    with the current principal and retain all existing fingerprint/TTL checks.
+    """
     from hermes_constants import get_hermes_home
-    return get_hermes_home() / "provider_models_cache.json"
+    return get_hermes_home() / "provider_models_cache_desktop_v2.json"
 
 
 def _credential_fingerprint(provider: str) -> str:

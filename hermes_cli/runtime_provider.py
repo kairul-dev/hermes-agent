@@ -38,8 +38,25 @@ from utils import base_url_host_matches, base_url_hostname, base_url_path, env_i
 # Late-bound delegates, deliberately NOT module-level from-imports: this module is often imported
 # lazily, so its first import can happen while a test has ``hermes_cli.config.load_config`` patched
 # — a from-import would bind the MagicMock permanently and poison every later caller.
+from contextlib import contextmanager
+from contextvars import ContextVar
+
+_PROVIDER_CONFIG = ContextVar("readonly_provider_config", default=None)
+
+
+@contextmanager
+def provider_config_scope(config):
+    """Bind credential-free catalog data without loading/expanding profile secrets."""
+    token = _PROVIDER_CONFIG.set(config)
+    try:
+        yield
+    finally:
+        _PROVIDER_CONFIG.reset(token)
+
+
 def load_config():
-    return _config_mod.load_config()
+    bound = _PROVIDER_CONFIG.get()
+    return bound if bound is not None else _config_mod.load_config()
 
 
 def get_compatible_custom_providers(config=None):
