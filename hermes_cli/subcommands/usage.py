@@ -36,7 +36,22 @@ def usage_snapshot_document(snapshot) -> dict:
 
 
 def cmd_usage(args: argparse.Namespace) -> int:
-    """Print the configured (or ``--provider``) account's usage windows; exit 1 when nothing could be fetched."""
+    """Print the configured (or ``--provider``) account's usage windows; exit 1 when nothing could be fetched.
+
+    With ``--all``: cover EVERY configured provider in human-readable text, or one JSON document
+    with ``--json`` (the desktop panel's data through ``cli.exec``) — see ``hermes_cli.subscription_usage`` for the
+    schema. The document is the product, so it exits 0 even when every provider is unavailable.
+    """
+    if getattr(args, "all", False):
+        from hermes_cli.subscription_usage import build_subscription_usage_document, render_subscription_usage_lines
+
+        document = build_subscription_usage_document()
+        if getattr(args, "json", False):
+            print(json.dumps(document, indent=2))
+        else:
+            print("\n".join(render_subscription_usage_lines(document)))
+        return 0
+
     from agent.account_usage import fetch_account_usage, render_account_usage_lines
     from hermes_cli.runtime_provider import resolve_requested_provider
 
@@ -70,4 +85,8 @@ def build_usage_parser(subparsers) -> None:
         "--provider", default=None, help="Provider to query (default: the configured model provider)")
     usage_parser.add_argument(
         "--json", action="store_true", help="Print one JSON document instead of the human-readable block")
+    usage_parser.add_argument(
+        "--all", action="store_true",
+        help="Show EVERY configured provider's usage/balance; add --json for the subscription_usage "
+             "document used by the desktop panel. Takes precedence over --provider.")
     usage_parser.set_defaults(func=cmd_usage)
