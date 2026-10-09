@@ -244,13 +244,18 @@ def build_usage_model(*, timeout: float = 10.0) -> UsageModel:
         return UsageModel(available=False)
 
     try:
-        import concurrent.futures
+        from agent.deadline import run_bounded_sync
 
         from hermes_cli.nous_account import get_nous_portal_account_info
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            account = pool.submit(get_nous_portal_account_info, force_fresh=True).result(timeout=timeout)
-        return usage_model_from_account(account)
+        result = run_bounded_sync(
+            lambda: get_nous_portal_account_info(force_fresh=True),
+            timeout,
+            label="nous-billing",
+        )
+        if result.timed_out:
+            return UsageModel(available=False)
+        return usage_model_from_account(result.value)
     except Exception:
         logger.debug("usage ▸ portal fetch failed (fail-open)", exc_info=True)
         return UsageModel(available=False)

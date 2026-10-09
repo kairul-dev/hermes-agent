@@ -93,9 +93,9 @@ __all__ = [
 # ``Thread.join(timeout=...)`` deadlines to an absolute timestamp; very large
 # relative timeouts overflow ``time_t`` on macOS and raise
 # ``OverflowError: timestamp out of range for platform time_t`` (#83220).
-# One year is semantically "unbounded" for every wait in this codebase while
-# staying far below any platform conversion limit.
-MAX_SAFE_TIMEOUT_S = 31_536_000.0  # 365 days
+# Windows has a lower wait limit than a year; reserve room for the 60-second
+# human-wait margin added by approval consumers.
+MAX_SAFE_TIMEOUT_S = min(31_536_000.0, threading.TIMEOUT_MAX - 60.0)
 
 # Grace period after a deadline fires before concluding the event loop thread
 # is blocked in a synchronous call and dumping stacks (family A diagnostics).
@@ -403,7 +403,7 @@ async def run_bounded_async(
     watchdog: Optional[threading.Timer] = None
     if dump_on_blocked_loop:
         watchdog = threading.Timer(
-            timeout_s + _LOOP_BLOCKED_DUMP_GRACE_S, _watchdog_check
+            clamp_timeout(timeout_s + _LOOP_BLOCKED_DUMP_GRACE_S), _watchdog_check
         )
         watchdog.daemon = True
         watchdog.start()

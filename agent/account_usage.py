@@ -263,14 +263,18 @@ def nous_credits_lines(*, markdown: bool = False, timeout: float = 10.0) -> list
     except Exception:
         return []
     try:
-        import concurrent.futures
+        from agent.deadline import run_bounded_sync
 
         from hermes_cli.nous_account import get_nous_portal_account_info
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            account = pool.submit(
-                get_nous_portal_account_info, force_fresh=True
-            ).result(timeout=timeout)
+        result = run_bounded_sync(
+            lambda: get_nous_portal_account_info(force_fresh=True),
+            timeout,
+            label="nous-credits",
+        )
+        if result.timed_out:
+            return []
+        account = result.value
         snapshot = build_nous_credits_snapshot(account)
         return render_account_usage_lines(snapshot, markdown=markdown)
     except Exception:
@@ -374,17 +378,21 @@ def build_credits_view(*, markdown: bool = False, timeout: float = 10.0) -> Cred
         return not_logged_in
 
     try:
-        import concurrent.futures
+        from agent.deadline import run_bounded_sync
 
         from hermes_cli.nous_account import (
             get_nous_portal_account_info,
             nous_portal_topup_url,
         )
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            account = pool.submit(get_nous_portal_account_info, force_fresh=True).result(
-                timeout=timeout
-            )
+        result = run_bounded_sync(
+            lambda: get_nous_portal_account_info(force_fresh=True),
+            timeout,
+            label="nous-topup",
+        )
+        if result.timed_out:
+            return not_logged_in
+        account = result.value
     except Exception:
         logger.debug("credits ▸ /topup portal fetch failed (fail-open)", exc_info=True)
         return not_logged_in
