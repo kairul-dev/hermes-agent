@@ -466,7 +466,7 @@ class TestClaudeQuotaCooldown:
         reset = "2026-10-09T15:00:00+00:00"
         payload = {
             "five_hour": {"utilization": 100, "resets_at": reset},
-            "seven_day": {"utilization": 0.42, "resets_at": reset},
+            "seven_day": {"utilization": 42, "resets_at": reset},
         }
 
         class _Resp:
@@ -606,3 +606,48 @@ def test_providers_are_not_serialized_behind_each_other(monkeypatch):
     assert claude["windows"][0]["used_percent"] == 62.0
     gate.release.set()
     a.join(10)
+
+
+# ── Anthropic utilization is a 0-100 percentage, never a fraction ─────────────────────────
+@pytest.mark.parametrize(
+    "reported, expected",
+    [
+        (0.0, 0.0),
+        (0.4, 0.4),  # a fresh window right after a reset, NOT 40%
+        (1.0, 1.0),  # 1%, NOT 100% / critical
+        (35.0, 35.0),
+        (100.0, 100.0),
+    ],
+)
+def test_anthropic_utilization_is_read_as_a_percentage(monkeypatch, reported, expected):
+    monkeypatch.setattr(au, "resolve_anthropic_token", lambda: "sk-ant-oat01-live")
+    payload = {
+        "five_hour": {"utilization": reported, "resets_at": "2026-10-09T15:00:00+00:00"},
+        "seven_day": {"utilization": reported, "resets_at": "2026-10-12T15:00:00+00:00"},
+    }
+
+    class _Resp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return payload
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get(self, url, headers=None):
+            return _Resp()
+
+    monkeypatch.setattr(au.httpx, "Client", _Client)
+
+    snapshot = au._fetch_anthropic_account_usage()
+
+    assert [w.used_percent for w in snapshot.windows] == [expected, expected]

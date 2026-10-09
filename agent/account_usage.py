@@ -814,7 +814,11 @@ def _fetch_anthropic_account_usage() -> Optional[AccountUsageSnapshot]:
         util = window.get("utilization")
         if util is None:
             continue
-        used = float(util) * 100 if float(util) <= 1 else float(util)
+        # ``utilization`` is already a 0-100 percentage (community-documented; the
+        # endpoint is not publicly specified). Do NOT rescale values <= 1: a fresh
+        # window legitimately reports 0.4 or 1.0 (%), and treating those as
+        # fractions shows 40% / 100% (critical) right after a reset.
+        used = float(util)
         windows.append(
             AccountUsageWindow(
                 label=label,
