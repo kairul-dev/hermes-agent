@@ -81,6 +81,51 @@ def prefix_from_request(request) -> str:
     return normalise_prefix(request.headers.get("x-forwarded-prefix"))
 
 
+def cookie_request_origin_allowed(request) -> bool:
+    """Require the dashboard's exact origin for cookie-authorized mutations.
+
+    Referer covers clients that omit Origin. Explicit bearer/service callers
+    are handled separately by the gate and do not depend on browser cookies.
+    """
+    from hermes_cli.dashboard_auth.cookies import detect_https
+
+    def origin(raw: str):
+        if not raw or "\\" in raw or any(ord(c) <= 32 or ord(c) == 127 for c in raw):
+            return None
+        try:
+            parsed = urllib.parse.urlsplit(raw)
+            if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+                return None
+            if parsed.username is not None or parsed.password is not None:
+                return None
+            port = parsed.port
+            if port == 0 or parsed.netloc.endswith(":"):
+                return None
+            return (parsed.scheme, parsed.hostname.lower(), port if port is not None else
+                    (443 if parsed.scheme == "https" else 80))
+        except ValueError:
+            return None
+
+    supplied = request.headers.get("origin")
+    if supplied is None:
+        supplied = request.headers.get("referer", "")
+    elif supplied:
+        try:
+            parsed = urllib.parse.urlsplit(supplied)
+            if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+                return False
+        except ValueError:
+            return False
+    initiating_origin = origin(supplied)
+    if initiating_origin is None:
+        return False
+    public_url = resolve_public_url()
+    if public_url:
+        return initiating_origin == origin(public_url)
+    scheme = "https" if detect_https(request) else "http"
+    return initiating_origin == origin(f"{scheme}://{request.url.netloc}")
+
+
 # --- HERMES_DASHBOARD_PUBLIC_URL / dashboard.public_url --------------------
 
 def _normalise_public_url(raw: Optional[str]) -> str:

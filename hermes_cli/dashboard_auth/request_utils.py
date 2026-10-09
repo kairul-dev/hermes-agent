@@ -39,6 +39,10 @@ def is_safe_next_path(path: str) -> bool:
     values, the auth routes themselves, and every ``/api`` path."""
     if not path.startswith("/") or path.startswith("//"):
         return False
+    # A backslash is a path separator to some browsers (``/\evil.com``) and control characters
+    # enable header/log injection: neither is ever a same-origin relative target.
+    if "\\" in path or any(ord(c) < 32 or ord(c) == 127 for c in path):
+        return False
     if any(path == p or path.startswith(p) for p in _NEXT_DENY_PREFIXES):
         return False
     return not (path == "/api" or path.startswith("/api/"))

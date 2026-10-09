@@ -226,7 +226,7 @@ def _settings() -> dict:
             "dashboard.basic_auth.username is not set (and HERMES_DASHBOARD_BASIC_AUTH_USERNAME "
             "is empty). Set a username and a password (or password_hash) under "
             "dashboard.basic_auth in config.yaml to enable username/password dashboard "
-            "login, or use the OAuth provider, or pass --insecure to skip the auth gate.")
+            "login, or use the OAuth provider. Non-loopback dashboards require an auth provider.")
     if not password_hash and not plaintext:
         raise SkipRegistration(
             "dashboard.basic_auth.username is set but neither password_hash nor password "

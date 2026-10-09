@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ipaddress
 import json
 import logging
 import os
@@ -192,8 +193,23 @@ class A2ARequestHandler(BaseHTTPRequestHandler):
         scheme = (self.headers.get("X-Forwarded-Proto", "") or "http").split(",")[0].strip()
         return f"{scheme}://{host}/" if host else ""
 
+    def _tokenless_host_allowed(self) -> bool:
+        host = self.headers.get("Host", "")
+        authority = re.fullmatch(
+            r"(?:127\.0\.0\.1|localhost|\[::1\])(?::([0-9]{1,5}))?", host, re.IGNORECASE
+        )
+        try:
+            local_peer = ipaddress.ip_address(self.client_address[0]).is_loopback
+        except (ValueError, IndexError):
+            return False
+        return bool(local_peer and authority and
+                    int(authority.group(1) or 80) == self.server.server_address[1])
+
     def do_GET(self):
         adapter = self.adapter
+        if adapter._security_context.localhost_only() and not self._tokenless_host_allowed():
+            self._json(403, {"error": "untrusted request host"})
+            return
         route = adapter._route_for_path(self.path)
         agent = route["agent"]
         subpath = route["subpath"].rstrip("/") or "/"
@@ -213,6 +229,17 @@ class A2ARequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         adapter = self.adapter
+        if adapter._security_context.localhost_only():
+            # Loopback sockets identify local programs, but browsers can also
+            # reach them. Reject rebinding authorities and simple form POSTs.
+            if (not self._tokenless_host_allowed()
+                    or "Origin" in self.headers or "Sec-Fetch-Site" in self.headers):
+                self._json(403, protocol.jsonrpc_error(None, protocol.ERR_UNAUTHORIZED, "untrusted request origin"))
+                return
+            if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
+                self._json(415, protocol.jsonrpc_error(None, protocol.ERR_PARSE, "application/json required"))
+                return
+
         # Identity comes from the credential (or the socket in localhost-only mode) — never the body.
         identity = adapter._security_context.authenticate(self.headers.get("Authorization"), self._client_ip())
         if identity is None:

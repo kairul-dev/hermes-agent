@@ -148,6 +148,39 @@ def gated_client():
     web_server.app.state.auth_required = prev_required
 
 
+@pytest.mark.parametrize("redirect", [
+    "http://attacker.example\\@127.0.0.1/",
+    "http://attacker.example%5c@127.0.0.1/",
+    "http://user@127.0.0.1:53999/cb",
+    "http://127.0.0.1:bad/cb",
+    "http://127.0.0.1:70000/cb",
+    "http://127.0.0.1:0/cb",
+    "http://127.0.0.1:/cb",
+    "http://[::1]attacker.example/cb",
+    "http://[::1/cb",
+    "http://127.0.0.1/cb#fragment",
+    "http://attacker.example\n@127.0.0.1/cb",
+])
+def test_native_authorize_rejects_ambiguous_browser_redirects(gated_client, redirect):
+    response = gated_client.get("/auth/native/authorize", params={
+        "provider": "stub", "code_challenge": "challenge", "code_challenge_method": "S256",
+        "redirect_uri": redirect,
+    })
+    assert response.status_code == 400
+
+
+@pytest.mark.parametrize("redirect", [
+    "http://127.0.0.1:53999/cb?source=desktop",
+    "http://[::1]:53999/cb",
+])
+def test_native_authorize_keeps_literal_loopback_callbacks(gated_client, redirect):
+    response = gated_client.get("/auth/native/authorize", params={
+        "provider": "stub", "code_challenge": "challenge", "code_challenge_method": "S256",
+        "redirect_uri": redirect,
+    })
+    assert response.status_code == 302
+
+
 def _walk_native_login(client, *, redirect_uri, challenge, state="cli-state"):
     """Drive authorize → (stub redirects to callback) → loopback code.
 
@@ -727,3 +760,13 @@ def test_native_refresh_dead_token_returns_401(gated_client):
     )
     assert r.status_code == 401
     assert r.json()["error"] == "session_expired"
+
+
+def test_oauth_preserves_same_origin_free_text_return_target(gated_client):
+    start = gated_client.get("/auth/login", params={"provider": "stub", "next": "/chat?learn=hello%20world"})
+    assert start.status_code == 302
+    callback = gated_client.get(start.headers["location"])
+    assert callback.status_code == 302
+    destination = urlparse(callback.headers["location"])
+    assert destination.path == "/chat"
+    assert parse_qs(destination.query) == {"learn": ["hello world"]}

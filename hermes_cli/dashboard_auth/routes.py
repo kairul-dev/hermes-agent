@@ -495,7 +495,11 @@ async def auth_password_login(request: Request, body: _PasswordLoginBody):
 
 @router.post("/auth/logout", name="auth_logout")
 async def auth_logout(request: Request):
+    from hermes_cli.dashboard_auth.prefix import cookie_request_origin_allowed
+
     _at, rt = read_session_cookies(request)
+    if (_at or rt) and not cookie_request_origin_allowed(request):
+        raise _http(403, "Untrusted request origin")
     # Best-effort revoke on every provider; failures logged, never raised.
     for provider in list_providers() if rt else ():
         try:
