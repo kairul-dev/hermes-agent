@@ -25,6 +25,7 @@ Three defects, each pinned here:
    MEDIA paths under different policy than the gateway's scheduled tick.
 """
 
+import json
 import os
 from pathlib import Path
 
@@ -231,7 +232,7 @@ class TestMediaPolicyEnvBridge:
         (home / "config.yaml").write_text(
             "gateway:\n"
             "  strict: true\n"
-            f"  media_delivery_allow_dirs: [{str(allow_dir)!r}]\n"
+            f"  media_delivery_allow_dirs: [{json.dumps(str(allow_dir))}]\n"
             "  trust_recent_files: false\n"
         )
         monkeypatch.setenv("HERMES_HOME", str(home))
@@ -247,7 +248,7 @@ class TestMediaPolicyEnvBridge:
         apply_media_policy_env()
 
         assert os.environ.get("HERMES_MEDIA_DELIVERY_STRICT") == "1"
-        assert str(allow_dir) in os.environ.get("HERMES_MEDIA_ALLOW_DIRS", "")
+        assert str(allow_dir) in os.environ["HERMES_MEDIA_ALLOW_DIRS"].split(os.pathsep)
         assert os.environ.get("HERMES_MEDIA_TRUST_RECENT_FILES") == "0"
 
     def test_standalone_filter_honors_bridged_allowlist(self, monkeypatch, tmp_path):
@@ -266,7 +267,7 @@ class TestMediaPolicyEnvBridge:
         (home / "config.yaml").write_text(
             "gateway:\n"
             "  strict: true\n"
-            f"  media_delivery_allow_dirs: [{str(allow_dir)!r}]\n"
+            f"  media_delivery_allow_dirs: [{json.dumps(str(allow_dir))}]\n"
         )
         monkeypatch.setenv("HERMES_HOME", str(home))
         for var in ("HERMES_MEDIA_DELIVERY_STRICT", "HERMES_MEDIA_ALLOW_DIRS"):

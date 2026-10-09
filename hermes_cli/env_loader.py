@@ -480,7 +480,7 @@ def load_hermes_dotenv(
     """Load Hermes environment files with user config taking precedence.
 
     Behavior:
-    - `~/.hermes/.env` overrides stale shell-exported values when present.
+    - The canonical Hermes home's `.env` overrides stale shell values when present.
     - project `.env` acts as a dev fallback and only fills missing values when
       the user env exists.
     - if no user env exists, the project `.env` also overrides stale shell vars.
@@ -491,7 +491,9 @@ def load_hermes_dotenv(
       profile's private secret snapshot without mutating the shared process
       environment; unscoped startup loads retain the normal behavior above.
     """
-    home_path = Path(hermes_home or os.getenv("HERMES_HOME", Path.home() / ".hermes"))
+    from hermes_constants import get_hermes_home
+
+    home_path = Path(hermes_home) if hermes_home else get_hermes_home()
 
     # A multiplex gateway hosts every profile in one process.  While a routed
     # profile-home override is active, copying that profile's .env into

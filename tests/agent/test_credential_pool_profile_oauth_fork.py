@@ -26,7 +26,13 @@ def fleet(tmp_path, monkeypatch):
     (tmp_path / "fakehome").mkdir()
     # Keep host ~/.claude and host auth.json out of the picture.
     monkeypatch.setenv("HOME", str(tmp_path / "fakehome"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "fakehome"))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "fakehome" / "AppData" / "Local"))
+    monkeypatch.setenv("APPDATA", str(tmp_path / "fakehome" / "AppData" / "Roaming"))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "fakehome"))
+    from pathlib import Path
+
+    assert Path.home() == tmp_path / "fakehome"
     for var in ("ANTHROPIC_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("HERMES_HOME", str(root))

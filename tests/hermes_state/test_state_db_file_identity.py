@@ -33,6 +33,7 @@ def _require_identity(db: SessionDB) -> None:
         pytest.skip("filesystem does not expose st_dev/st_ino for identity checks")
 
 
+@pytest.mark.linux_only
 def test_replace_with_new_inode_fails_loudly_without_fts_repair(tmp_path):
     live = tmp_path / "state.db"
     other = tmp_path / "other.db"
@@ -56,6 +57,7 @@ def test_replace_with_new_inode_fails_loudly_without_fts_repair(tmp_path):
     db.close()
 
 
+@pytest.mark.linux_only
 def test_second_write_after_halt_does_not_attempt_repair(tmp_path):
     live = tmp_path / "state.db"
     other = tmp_path / "other.db"
@@ -125,6 +127,7 @@ def test_new_sessiondb_on_replaced_path_records_new_identity(tmp_path):
         reopened.close()
 
 
+@pytest.mark.linux_only
 def test_fts_scoped_error_on_replaced_file_skips_fts_fail_open(tmp_path):
     """Even FTS-provenance corruption must not authorize surgery on a
     replaced file. (A generic malformed error never reaches fail-open at
@@ -297,3 +300,19 @@ def test_identity_probe_still_detects_replacement_after_fd_cache(tmp_path):
         "probe kept reading the retired inode instead of rebinding to the "
         "replacement file"
     )
+
+
+@pytest.mark.windows_only
+def test_windows_blocks_replacing_an_open_db_without_halting_writes(tmp_path):
+    live = tmp_path / "state.db"
+    other = tmp_path / "other.db"
+    db = _make_db(live, "s", "original")
+    alt = _make_db(other, "t", "replacement")
+    alt.close()
+    try:
+        with pytest.raises(PermissionError):
+            os.replace(other, live)
+        db.append_message("s", role="user", content="still writable")
+        assert db._db_replaced is False
+    finally:
+        db.close()

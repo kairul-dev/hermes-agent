@@ -490,21 +490,15 @@ def waiter_command(root: Path | str, envelope: dict) -> str:
     notification local DMs use. Stdlib-only; runs under the sender gateway's
     interpreter.
     """
-    reply_path = str(relay_root(root) / REPLIES_DIR / f"{envelope['id']}.json")
+    reply_path = (relay_root(root) / REPLIES_DIR / f"{envelope['id']}.json").as_posix()
     label = (
         f"@{envelope.get('target_handle', '')} "
         f"on {envelope.get('target_connection', '')}"
     )
     # Encode label with !r so roster fields cannot break out of the generated
     # python -c source (quotes, parens, or extra statements in connection_id).
-    # The raw-string prefix keeps Windows paths viable: repr escapes each
-    # backslash ("C:\\Users\\..."), but the Windows execution layer the
-    # waiter runs under folds "\\" back to "\", which turns "\U" into an
-    # invalid unicode escape and SyntaxErrors the whole script (#93590).
-    # With the r prefix the folded single backslash parses as a literal.
-    # POSIX paths contain no backslashes, so the prefix is a no-op there,
-    # and \' inside a raw literal still cannot terminate the string, so
-    # the injection defense above is unchanged.
+    # Forward slashes work in Python on Windows and POSIX, and survive both
+    # Git Bash and the native Windows command bridge without escape folding.
     code = (
         "import json,os,sys,time\n"
         f"p = r{reply_path!r}\n"
@@ -532,7 +526,8 @@ def waiter_command(root: Path | str, envelope: dict) -> str:
         "still be delivered when the Desktop reconnects; do not resend blindly.')\n"
         "sys.exit(1)\n"
     )
-    return f"{shlex.quote(sys.executable or 'python3')} -c {shlex.quote(code)}"
+    interpreter = Path(sys.executable).as_posix() if sys.executable else "python3"
+    return f"{shlex.quote(interpreter)} -c {shlex.quote(code)}"
 
 
 # ── delivery command (used by the deliver RPC on the TARGET gateway) ────────

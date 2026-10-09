@@ -177,18 +177,24 @@ def test_deliver_write_failure_still_removes_tempfile(home, monkeypatch, tmp_pat
         made.append(path)
         return fd, path
 
+    real_fdopen = os.fdopen
+
     class _BrokenWriter:
+        def __init__(self, fd, *args, **kwargs):
+            self.stream = real_fdopen(fd, *args, **kwargs)
+
         def __enter__(self):
             return self
 
         def __exit__(self, *exc_info):
+            self.stream.close()
             return False
 
         def write(self, content):
             raise OSError("disk full")
 
     monkeypatch.setattr("tempfile.mkstemp", _tracking_mkstemp)
-    monkeypatch.setattr("os.fdopen", lambda *a, **k: _BrokenWriter())
+    monkeypatch.setattr("os.fdopen", _BrokenWriter)
     err = srv._methods["bot_relay.deliver"](1, {"profile": "ops", "message": "x"})
     assert "error" in err
     assert made, "mkstemp was never reached"

@@ -161,8 +161,11 @@ test('writeSecretFileAtomic creates the file owner-only, not at the 0644 umask d
 
     writeSecretFileAtomic(target, payload)
 
-    assert.equal(modeOf(target), SECRET_FILE_MODE)
-    assert.equal(modeOf(target) & 0o077, 0, 'no group/other bits')
+    if (process.platform !== 'win32') {
+      assert.equal(modeOf(target), SECRET_FILE_MODE)
+      assert.equal(modeOf(target) & 0o077, 0, 'no group/other bits')
+    }
+
     assert.equal(fs.readFileSync(target, 'utf8'), payload, 'content round-trips')
     assertNoSecretDebris(dir, 'connection.json', 'BLOB')
   })
@@ -392,7 +395,10 @@ test('writeSecretFileAtomic does not inherit loose bits from a stale temp file',
 
     writeSecretFileAtomic(target, 'fresh')
 
-    assert.equal(modeOf(target), SECRET_FILE_MODE)
+    if (process.platform !== 'win32') {
+      assert.equal(modeOf(target), SECRET_FILE_MODE)
+    }
+
     assert.equal(fs.readFileSync(target, 'utf8'), 'fresh')
   })
 })
@@ -409,8 +415,8 @@ function fsWith(overrides: Record<string, unknown>) {
   return { ...fs, ...overrides } as any
 }
 
-test('the written file is owner-only even where chmod does nothing', () => {
-  // Windows, and any mount that refuses chmod. The create-time `mode` is what
+test.skipIf(process.platform === 'win32')('the written file is owner-only even where chmod does nothing', () => {
+  // A POSIX mount that refuses chmod. The create-time `mode` is what
   // covers this — there is no second chance to tighten.
   withTempDir(dir => {
     const target = path.join(dir, 'connection.json')
@@ -434,20 +440,23 @@ test('the written file is owner-only even where chmod does nothing', () => {
   })
 })
 
-test('the written file is owner-only even when a stale temp cannot be removed', () => {
-  // The unlink is best-effort; if the stale temp survives, writeFileSync's
-  // `mode` is ignored on an existing path and only the chmod before the rename
-  // can still fix the bits.
-  withTempDir(dir => {
-    const target = path.join(dir, 'connection.json')
-    fs.writeFileSync(`${target}.tmp`, 'stale', { mode: 0o666 })
+test.skipIf(process.platform === 'win32')(
+  'the written file is owner-only even when a stale temp cannot be removed',
+  () => {
+    // The unlink is best-effort; if the stale temp survives, writeFileSync's
+    // `mode` is ignored on an existing path and only the chmod before the rename
+    // can still fix the bits.
+    withTempDir(dir => {
+      const target = path.join(dir, 'connection.json')
+      fs.writeFileSync(`${target}.tmp`, 'stale', { mode: 0o666 })
 
-    writeSecretFileAtomic(target, 'tok', { fs: fsWith({ rmSync: () => void 0 }) })
+      writeSecretFileAtomic(target, 'tok', { fs: fsWith({ rmSync: () => void 0 }) })
 
-    assert.equal(modeOf(target), SECRET_FILE_MODE, 'tightened before the rename handed the bits over')
-    assert.equal(fs.readFileSync(target, 'utf8'), 'tok')
-  })
-})
+      assert.equal(modeOf(target), SECRET_FILE_MODE, 'tightened before the rename handed the bits over')
+      assert.equal(fs.readFileSync(target, 'utf8'), 'tok')
+    })
+  }
+)
 
 test('writeSecretFileAtomic cannot be redirected through a symlink planted at the temp path', () => {
   // A stale temp path is attacker-controllable in a shared temp/userData dir.
@@ -471,133 +480,164 @@ test('writeSecretFileAtomic cannot be redirected through a symlink planted at th
     writeSecretFileAtomic(target, 'tok-live-42')
 
     assert.equal(fs.readFileSync(victim, 'utf8'), 'original', 'the symlink target was not written through')
-    assert.equal(modeOf(victim), 0o644, 'the victim file was not chmodded either')
-    assert.equal(fs.readFileSync(target, 'utf8'), 'tok-live-42')
-    assert.equal(fs.lstatSync(target).isSymbolicLink(), false, 'the target is a real file, not the planted link')
-    assert.equal(modeOf(target), SECRET_FILE_MODE)
-  })
-})
 
-test('tightenSecretFileMode tightens a pre-existing world-readable config in place', () => {
-  // The upgrade path: a connection.json written by an older build sits at 0644
-  // with a real (encrypted) token in it. Tightening must change the mode and
-  // nothing else — the token has to stay readable or the user loses their
-  // configured gateway.
-  withTempDir(dir => {
-    const target = path.join(dir, 'connection.json')
-
-    const legacy = JSON.stringify({
-      mode: 'remote',
-      remote: {
-        url: 'https://gw.example.com',
-        authMode: 'token',
-        token: { encoding: SAFE_STORAGE_ENCODING, value: 'BLOB' }
-      }
-    })
-
-    fs.writeFileSync(target, legacy, { mode: 0o644 })
-    assert.equal(modeOf(target), 0o644)
-
-    assert.equal(tightenSecretFileMode(target), true)
-
-    assert.equal(modeOf(target), SECRET_FILE_MODE)
-    assert.deepEqual(JSON.parse(fs.readFileSync(target, 'utf8')), JSON.parse(legacy), 'contents untouched')
-  })
-})
-
-test('tightenSecretFileMode leaves a non-safeStorage token payload readable', () => {
-  // A hand-edited config (or one from a pre-release build) can hold a
-  // non-safeStorage token payload, which decryptDesktopSecret still reads
-  // verbatim on purpose. Tightening the mode must not disturb that fallback —
-  // it only narrows who can open the file.
-  withTempDir(dir => {
-    const target = path.join(dir, 'connection.json')
-
-    const legacyPlain = JSON.stringify({
-      mode: 'remote',
-      remote: { url: 'https://gw.example.com', authMode: 'token', token: { encoding: 'plain', value: 'tok-live-42' } }
-    })
-
-    fs.writeFileSync(target, legacyPlain, { mode: 0o644 })
-
-    tightenSecretFileMode(target)
-
-    assert.equal(modeOf(target), SECRET_FILE_MODE)
-    assert.equal(JSON.parse(fs.readFileSync(target, 'utf8')).remote.token.value, 'tok-live-42')
-  })
-})
-
-test('tightenSecretFileMode is idempotent and never throws on an unusable path', () => {
-  withTempDir(dir => {
-    const target = path.join(dir, 'connection.json')
-    writeSecretFileAtomic(target, '{}')
-
-    assert.equal(tightenSecretFileMode(target), true)
-    assert.equal(tightenSecretFileMode(target), true)
-    assert.equal(modeOf(target), SECRET_FILE_MODE)
-
-    // Missing file (fresh install, nothing saved yet) reports failure quietly
-    // instead of breaking the read path it is called from.
-    assert.equal(tightenSecretFileMode(path.join(dir, 'absent.json')), false)
-  })
-})
-
-test('tightenSecretFileMode refuses to chmod a symlink instead of following it to its target', () => {
-  // Matches readInstallationId in desktop-installation.ts. Without the lstat
-  // guard a link planted at the config path sends the chmod to whatever it
-  // resolves to — someone else's file gets its mode rewritten.
-  withTempDir(dir => {
-    const target = path.join(dir, 'connection.json')
-    const victim = path.join(dir, 'victim.txt')
-    fs.writeFileSync(victim, 'not mine', { mode: 0o644 })
-
-    try {
-      fs.symlinkSync(victim, target, 'file')
-    } catch (error: any) {
-      if (error?.code === 'EPERM' || error?.code === 'EACCES') {
-        return
-      }
-
-      throw error
+    if (process.platform !== 'win32') {
+      assert.equal(modeOf(victim), 0o644, 'the victim file was not chmodded either')
     }
 
-    assert.equal(tightenSecretFileMode(target), false, 'reports "not tightened" rather than acting on the link')
-    assert.equal(modeOf(victim), 0o644, 'the symlink target keeps its own mode')
+    assert.equal(fs.readFileSync(target, 'utf8'), 'tok-live-42')
+    assert.equal(fs.lstatSync(target).isSymbolicLink(), false, 'the target is a real file, not the planted link')
+
+    if (process.platform !== 'win32') {
+      assert.equal(modeOf(target), SECRET_FILE_MODE)
+    }
   })
 })
 
-test('tightenSecretFileMode only touches a regular file the current user owns', () => {
-  // Directories, sockets, fifos and files owned by another account are all
-  // "not ours to chmod". Injected lstat so the foreign-owner branch is
-  // reachable without a second OS account.
-  const chmodded: string[] = []
+test.skipIf(process.platform === 'win32')(
+  'tightenSecretFileMode tightens a pre-existing world-readable config in place',
+  () => {
+    // The upgrade path: a connection.json written by an older build sits at 0644
+    // with a real (encrypted) token in it. Tightening must change the mode and
+    // nothing else — the token has to stay readable or the user loses their
+    // configured gateway.
+    withTempDir(dir => {
+      const target = path.join(dir, 'connection.json')
 
-  const fakeFs = (stat: Record<string, unknown>) =>
-    ({
-      chmodSync: (filePath: string) => void chmodded.push(filePath),
-      lstatSync: () => ({ isFile: () => true, isSymbolicLink: () => false, mode: 0o644, uid: 0, ...stat }),
-      renameSync: () => void 0,
-      rmSync: () => void 0,
-      writeFileSync: () => void 0
-    }) as any
+      const legacy = JSON.stringify({
+        mode: 'remote',
+        remote: {
+          url: 'https://gw.example.com',
+          authMode: 'token',
+          token: { encoding: SAFE_STORAGE_ENCODING, value: 'BLOB' }
+        }
+      })
 
-  const uid = typeof process.getuid === 'function' ? process.getuid() : 0
+      fs.writeFileSync(target, legacy, { mode: 0o644 })
+      assert.equal(modeOf(target), 0o644)
 
-  assert.equal(
-    tightenSecretFileMode('/x/connection.json', { fs: fakeFs({ isFile: () => false }), platform: 'linux' }),
-    false
-  )
-  assert.equal(
-    tightenSecretFileMode('/x/connection.json', { fs: fakeFs({ uid: uid + 1 }), platform: 'linux' }),
-    false,
-    'a file owned by another user is left alone'
-  )
-  assert.deepEqual(chmodded, [], 'nothing was chmodded on the rejected paths')
+      assert.equal(tightenSecretFileMode(target), true)
 
-  // The same fs shape, but ours and loose: now it tightens.
-  assert.equal(tightenSecretFileMode('/x/connection.json', { fs: fakeFs({ uid }), platform: 'linux' }), true)
-  assert.deepEqual(chmodded, ['/x/connection.json'])
-})
+      if (process.platform !== 'win32') {
+        assert.equal(modeOf(target), SECRET_FILE_MODE)
+      }
+
+      assert.deepEqual(JSON.parse(fs.readFileSync(target, 'utf8')), JSON.parse(legacy), 'contents untouched')
+    })
+  }
+)
+
+test.skipIf(process.platform === 'win32')(
+  'tightenSecretFileMode leaves a non-safeStorage token payload readable',
+  () => {
+    // A hand-edited config (or one from a pre-release build) can hold a
+    // non-safeStorage token payload, which decryptDesktopSecret still reads
+    // verbatim on purpose. Tightening the mode must not disturb that fallback —
+    // it only narrows who can open the file.
+    withTempDir(dir => {
+      const target = path.join(dir, 'connection.json')
+
+      const legacyPlain = JSON.stringify({
+        mode: 'remote',
+        remote: { url: 'https://gw.example.com', authMode: 'token', token: { encoding: 'plain', value: 'tok-live-42' } }
+      })
+
+      fs.writeFileSync(target, legacyPlain, { mode: 0o644 })
+
+      tightenSecretFileMode(target)
+
+      if (process.platform !== 'win32') {
+        assert.equal(modeOf(target), SECRET_FILE_MODE)
+      }
+
+      assert.equal(JSON.parse(fs.readFileSync(target, 'utf8')).remote.token.value, 'tok-live-42')
+    })
+  }
+)
+
+test.skipIf(process.platform === 'win32')(
+  'tightenSecretFileMode is idempotent and never throws on an unusable path',
+  () => {
+    withTempDir(dir => {
+      const target = path.join(dir, 'connection.json')
+      writeSecretFileAtomic(target, '{}')
+
+      assert.equal(tightenSecretFileMode(target), true)
+      assert.equal(tightenSecretFileMode(target), true)
+
+      if (process.platform !== 'win32') {
+        assert.equal(modeOf(target), SECRET_FILE_MODE)
+      }
+
+      // Missing file (fresh install, nothing saved yet) reports failure quietly
+      // instead of breaking the read path it is called from.
+      assert.equal(tightenSecretFileMode(path.join(dir, 'absent.json')), false)
+    })
+  }
+)
+
+test.skipIf(process.platform === 'win32')(
+  'tightenSecretFileMode refuses to chmod a symlink instead of following it to its target',
+  () => {
+    // Matches readInstallationId in desktop-installation.ts. Without the lstat
+    // guard a link planted at the config path sends the chmod to whatever it
+    // resolves to — someone else's file gets its mode rewritten.
+    withTempDir(dir => {
+      const target = path.join(dir, 'connection.json')
+      const victim = path.join(dir, 'victim.txt')
+      fs.writeFileSync(victim, 'not mine', { mode: 0o644 })
+
+      try {
+        fs.symlinkSync(victim, target, 'file')
+      } catch (error: any) {
+        if (error?.code === 'EPERM' || error?.code === 'EACCES') {
+          return
+        }
+
+        throw error
+      }
+
+      assert.equal(tightenSecretFileMode(target), false, 'reports "not tightened" rather than acting on the link')
+      assert.equal(modeOf(victim), 0o644, 'the symlink target keeps its own mode')
+    })
+  }
+)
+
+test.skipIf(process.platform === 'win32')(
+  'tightenSecretFileMode only touches a regular file the current user owns',
+  () => {
+    // Directories, sockets, fifos and files owned by another account are all
+    // "not ours to chmod". Injected lstat so the foreign-owner branch is
+    // reachable without a second OS account.
+    const chmodded: string[] = []
+
+    const fakeFs = (stat: Record<string, unknown>) =>
+      ({
+        chmodSync: (filePath: string) => void chmodded.push(filePath),
+        lstatSync: () => ({ isFile: () => true, isSymbolicLink: () => false, mode: 0o644, uid: 0, ...stat }),
+        renameSync: () => void 0,
+        rmSync: () => void 0,
+        writeFileSync: () => void 0
+      }) as any
+
+    const uid = typeof process.getuid === 'function' ? process.getuid() : 0
+
+    assert.equal(
+      tightenSecretFileMode('/x/connection.json', { fs: fakeFs({ isFile: () => false }), platform: 'linux' }),
+      false
+    )
+    assert.equal(
+      tightenSecretFileMode('/x/connection.json', { fs: fakeFs({ uid: uid + 1 }), platform: 'linux' }),
+      false,
+      'a file owned by another user is left alone'
+    )
+    assert.deepEqual(chmodded, [], 'nothing was chmodded on the rejected paths')
+
+    // The same fs shape, but ours and loose: now it tightens.
+    assert.equal(tightenSecretFileMode('/x/connection.json', { fs: fakeFs({ uid }), platform: 'linux' }), true)
+    assert.deepEqual(chmodded, ['/x/connection.json'])
+  }
+)
 
 test('tightenSecretFileMode leaves Windows alone rather than flipping the read-only bit', () => {
   const chmods: string[] = []

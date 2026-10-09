@@ -24,7 +24,10 @@ Two failures on a Windows desktop install talking to a remote gateway:
 
 import ast
 import shlex
+import sys
 from pathlib import Path
+
+import pytest
 
 import tools.bot_mode_dm as bot_mode_dm
 import tools.bot_relay as bot_relay
@@ -59,7 +62,7 @@ def test_waiter_posix_path_and_label_values_roundtrip():
         for t in ast.parse(code).body
         if isinstance(t, ast.Assign) and isinstance(t.targets[0], ast.Name)
     }
-    expected = str(root / "bot_relay" / "replies" / f"{ENV['id']}.json")
+    expected = (root / "bot_relay" / "replies" / f"{ENV['id']}.json").as_posix()
     assert assigns["p"].value == expected
     assert assigns["label"].value == "@researcher on ssh-vps"
     # The literals are raw-prefixed in the generated source.
@@ -91,7 +94,7 @@ def test_waiter_raw_prefix_keeps_injection_defense():
 def test_local_delivery_resolves_sibling_hermes(tmp_path, monkeypatch):
     bin_dir = tmp_path / "venv" / "bin"
     bin_dir.mkdir(parents=True)
-    sibling = bin_dir / "hermes"
+    sibling = bin_dir / ("hermes.exe" if sys.platform == "win32" else "hermes")
     sibling.touch()
     sibling.chmod(0o755)
     monkeypatch.setattr("sys.executable", str(bin_dir / "python"))
@@ -161,3 +164,19 @@ def test_delivery_lock_recognizes_resolved_cli_paths(tmp_path, monkeypatch):
     with bot_mode_dm._delivery_lock(["python", "-m", "whatever"], stdin_file=False):
         pass
     assert acquired == ["locked", "locked", "locked"]
+
+
+@pytest.mark.windows_only
+def test_waiter_runs_in_native_git_bash_with_spaces_in_home(tmp_path):
+    import subprocess
+    from tools.environments.local import _find_bash
+
+    home = tmp_path / "Hermes Home"
+    home.mkdir()
+    bot_relay.write_reply(home, ENV["id"], reply="native reply")
+    result = subprocess.run(
+        [_find_bash(), "-c", bot_relay.waiter_command(home, ENV)],
+        capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "native reply" in result.stdout
