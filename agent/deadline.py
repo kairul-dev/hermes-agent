@@ -54,9 +54,14 @@ __all__ = [
 # takes the DWORD-ms cap, which is still semantically "unbounded" for
 # every wait in this codebase.
 _WINDOWS_MAX_WAIT_S = (0xFFFFFFFF - 1000) / 1000.0  # DWORD ms, minus a 1s rounding guard
-MAX_SAFE_TIMEOUT_S = (
-    _WINDOWS_MAX_WAIT_S if sys.platform == "win32" else 31_536_000.0
-)  # 365 days off-Windows
+# Callers add margins to a capped timeout (the 60s approval human-wait margin, the blocked-loop
+# watchdog grace). Reserve that headroom below the platform's absolute limit, otherwise
+# ``cap + margin`` itself overflows (on Windows the cap alone sat 0.7s below TIMEOUT_MAX).
+_WAIT_HEADROOM_S = 60.0
+MAX_SAFE_TIMEOUT_S = min(
+    _WINDOWS_MAX_WAIT_S if sys.platform == "win32" else 31_536_000.0,  # 365 days off-Windows
+    threading.TIMEOUT_MAX - _WAIT_HEADROOM_S,
+)
 
 # Grace after a deadline fires before concluding the loop thread is blocked and dumping stacks.
 _LOOP_BLOCKED_DUMP_GRACE_S = 5.0

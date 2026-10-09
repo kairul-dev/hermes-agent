@@ -66,10 +66,10 @@ class TestClampTimeout:
         lock.release()
 
     def test_approval_margin_is_platform_safe(self, monkeypatch):
-        from tools import approval
+        from tools import approval_context, approval_human_wait
 
-        monkeypatch.setattr(approval, "_get_approval_config", lambda: {"timeout": 10**18})
-        ceiling = approval.human_wait_ceiling()
+        monkeypatch.setattr(approval_context, "_get_approval_config", lambda: {"timeout": 10**18})
+        ceiling = approval_human_wait.human_wait_ceiling()
         assert ceiling <= threading.TIMEOUT_MAX
         lock = threading.Lock()
         assert lock.acquire(timeout=ceiling)

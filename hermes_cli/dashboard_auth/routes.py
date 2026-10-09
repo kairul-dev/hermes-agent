@@ -260,6 +260,8 @@ def _validate_loopback_redirect_uri(raw: str) -> str:
         port = parsed.port
     except ValueError:
         raise _http(400, "native redirect_uri must use a canonical loopback URL")
+    if port == 0:
+        raise _http(400, "native redirect_uri must use a canonical loopback URL")
     if parsed.scheme != "http":
         raise _http(400, "native redirect_uri must be http:// on the loopback interface")
     if "#" in raw:
