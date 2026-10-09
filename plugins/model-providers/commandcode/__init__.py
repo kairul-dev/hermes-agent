@@ -16,28 +16,102 @@ _COMMANDCODE_BASE = "https://api.commandcode.ai/provider/v1"
 _COMMANDCODE_MODELS_URL = f"{_COMMANDCODE_BASE}/models"
 
 
+def _commandcode_models_url(base_url: str | None) -> str:
+    """Resolve the /models URL. The picker passes base_url unconditionally, so
+    only a value differing from the default is a custom endpoint."""
+    caller_base = (base_url or "").strip().rstrip("/")
+    custom = caller_base and caller_base != _COMMANDCODE_BASE
+    return caller_base + "/models" if custom else _COMMANDCODE_MODELS_URL
+
+
+def _fetch_commandcode_model_records(
+    timeout: float = 10.0,
+    base_url: str | None = None,
+) -> list[dict] | None:
+    """Fetch the live model catalog from the CommandCode /models endpoint.
+
+    Returns the raw records (each with ``id`` and, usually,
+    ``supported_endpoints``), or None on failure.
+    No auth required — the public models endpoint is open.
+    """
+    try:
+        req = urllib.request.Request(_commandcode_models_url(base_url))
+        req.add_header("Accept", "application/json")
+        req.add_header("User-Agent", _profile_user_agent())
+        with open_credentialed_url(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode())
+        # Response shape: {"object": "list", "data": [{"id": "...", ...}]}
+        return [
+            m
+            for m in data.get("data", [])
+            if isinstance(m, dict) and "id" in m
+        ]
+    except Exception as exc:
+        logger.debug("fetch_models(commandcode): %s", exc)
+        return None
+
+
+# ── Wire-protocol filtering ───────────────────────────────────────────────────
+# CommandCode fronts many vendors from one base URL, and each catalog entry
+# publishes the endpoint(s) it is served on. A Claude model on this provider is
+# served ONLY by /messages (Anthropic Messages shape); every other family is
+# served by /chat/completions or /responses. Choosing the wrong wire is a hard
+# 400, not a fallback:
+#
+#   400 Model "claude-sonnet-5-5" must be called via /provider/v1/messages
+#       (Anthropic Messages shape).   [code: unsupported_model]
+#
+# Both profiles read the same public catalog, so each must advertise only the
+# models it can actually serve — otherwise the picker offers a model under a
+# provider that can never answer it, and selecting it fails on the first turn.
+
+_CHAT_COMPLETIONS_ENDPOINTS = ("/chat/completions", "/responses")
+_MESSAGES_ENDPOINTS = ("/messages",)
+
+
+def _models_supporting_endpoint(
+    records: list[dict], endpoints: tuple[str, ...]
+) -> list[str]:
+    """Model ids from *records* served on at least one of *endpoints*.
+
+    A record advertising no ``supported_endpoints`` is kept: the field is
+    advisory, and dropping every entry when it is absent would empty the picker
+    behind a proxy or an older catalog revision. The gate only removes models
+    that positively declare themselves served on another wire.
+    """
+    wanted = {endpoint.lower() for endpoint in endpoints}
+    ids: list[str] = []
+    for record in records:
+        advertised = record.get("supported_endpoints")
+        if isinstance(advertised, list) and advertised:
+            served = {
+                str(entry).strip().lower()
+                for entry in advertised
+                if str(entry).strip()
+            }
+            if not served.intersection(wanted):
+                continue
+        ids.append(str(record["id"]))
+    return ids
+
+
 class CommandCodeProfile(ProviderProfile):
     """CommandCode — OpenAI-compatible chat completions endpoint."""
 
     def fetch_models(
         self, *, api_key: str | None = None, base_url: str | None = None, timeout: float = 8.0
     ) -> list[str] | None:
-        """Public (unauthenticated) /models endpoint. The picker passes base_url
-        unconditionally, so only a value differing from the default is a custom endpoint."""
-        caller_base = (base_url or "").strip().rstrip("/")
-        custom = caller_base and caller_base != _COMMANDCODE_BASE
-        models_url = caller_base + "/models" if custom else _COMMANDCODE_MODELS_URL
-        try:
-            req = urllib.request.Request(models_url)
-            req.add_header("Accept", "application/json")
-            req.add_header("User-Agent", _profile_user_agent())
-            with open_credentialed_url(req, timeout=timeout) as resp:
-                data = json.loads(resp.read().decode())
-            return [m["id"] for m in data.get("data", []) if isinstance(m, dict) and "id" in m]
-        except Exception as exc:
-            logger.debug("fetch_models(commandcode): %s", exc)
-            return None
+        """Fetch the public CommandCode /models endpoint.
 
+        Returns only models served on the OpenAI wire; /messages-only models
+        (every claude-* entry) are dropped — see _CHAT_COMPLETIONS_ENDPOINTS.
+        """
+        records = _fetch_commandcode_model_records(
+            timeout=timeout, base_url=base_url
+        )
+        if records is None:
+            return None
+        return _models_supporting_endpoint(records, _CHAT_COMPLETIONS_ENDPOINTS)
 
     def build_api_kwargs_extras(
         self, *, reasoning_config: dict | None = None, model: str | None = None, **context
@@ -65,9 +139,23 @@ class CommandCodeAnthropicProfile(CommandCodeProfile):
     def fetch_models(
         self, *, api_key: str | None = None, base_url: str | None = None, timeout: float = 8.0
     ) -> list[str] | None:
-        """Public /models endpoint, filtered to Anthropic-family models."""
-        all_models = super().fetch_models(api_key=api_key, base_url=base_url, timeout=timeout)
-        return None if all_models is None else [m for m in all_models if m.startswith("claude-")]
+        """Fetch the public CommandCode /models endpoint.
+
+        Filter to Anthropic-family models (claude-*) that are served on the
+        Messages wire. The endpoint check is the mirror of the chat profile's:
+        a claude-* entry advertising only /chat/completions would fail the same
+        way in reverse.
+        """
+        records = _fetch_commandcode_model_records(
+            timeout=timeout, base_url=base_url
+        )
+        if records is None:
+            return None
+        return [
+            model
+            for model in _models_supporting_endpoint(records, _MESSAGES_ENDPOINTS)
+            if model.startswith("claude-")
+        ]
 
 
 commandcode = CommandCodeProfile(
