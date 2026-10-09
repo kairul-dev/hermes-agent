@@ -69,6 +69,7 @@ _SHARED_NATIVE_MEMBER_METHODS = frozenset({
     "prompt.submit", "session.interrupt", "session.steer", "session.close",
     "session.usage", "session.context_breakdown", "session.status",
     "session.history", "session.events.since", "session.info.get", "orchestration.get", "orchestration.set",
+    "session.start_chat",
     "approval.pending", "approval.received",
     "approval.respond", "clarify.lock", "request.answer",
 })
