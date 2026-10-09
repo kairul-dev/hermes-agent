@@ -37,8 +37,10 @@ def _win(kind, used, label="x", reset=RESET):
 def _clean_cache(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
     au._panel_cache.clear()
+    au._panel_last_attempt.clear()
     yield
     au._panel_cache.clear()
+    au._panel_last_attempt.clear()
 
 
 def _install(monkeypatch, table):
@@ -218,6 +220,7 @@ def test_transient_failure_with_credentials_still_serves_stale(monkeypatch):
 
 class TestCredentialProbe:
     def test_anthropic_requires_an_oauth_login_not_just_a_token(self, monkeypatch):
+        monkeypatch.setattr(au, "resolve_anthropic_cooled_down_oauth_token", lambda: None)
         monkeypatch.setattr(au, "resolve_anthropic_token", lambda: "oauth-tok")
         monkeypatch.setattr(au, "_is_oauth_token", lambda token: token == "oauth-tok")
         assert au._panel_has_credentials("anthropic") is True
@@ -434,3 +437,172 @@ def test_a_later_success_clears_the_stale_flag(monkeypatch):
 
     assert fresh["stale"] is False
     assert fresh["windows"][0]["used_percent"] == 41.0
+
+
+# ── Claude OAuth benched by a 429 cooldown (diagnostic resolver) ──────────────────────────
+class TestClaudeQuotaCooldown:
+    def _no_chat_token(self, monkeypatch, cooled=None):
+        monkeypatch.setattr(au, "resolve_anthropic_token", lambda: None)
+        monkeypatch.setattr(au, "resolve_anthropic_cooled_down_oauth_token", lambda: cooled)
+
+    def test_probe_a_cooled_down_oauth_login_is_still_signed_in(self, monkeypatch):
+        self._no_chat_token(monkeypatch, cooled="sk-ant-oat01-cooled")
+        assert au._panel_has_credentials("anthropic") is True
+
+    def test_probe_nothing_stored_is_signed_out(self, monkeypatch):
+        self._no_chat_token(monkeypatch, cooled=None)
+        assert au._panel_has_credentials("anthropic") is False
+
+    def test_probe_an_active_api_key_wins_over_a_cooled_down_oauth_entry(self, monkeypatch):
+        # The user explicitly configured a plain key: that is the account in use.
+        monkeypatch.setattr(au, "resolve_anthropic_token", lambda: "sk-ant-api03-key")
+        monkeypatch.setattr(au, "resolve_anthropic_cooled_down_oauth_token", lambda: "sk-ant-oat01-cooled")
+        assert au._panel_has_credentials("anthropic") is False
+
+    def test_first_load_shows_an_exhausted_claude_account_at_100_percent(self, monkeypatch):
+        """Through the real builder + fetch; only the HTTP edge is stubbed."""
+        self._no_chat_token(monkeypatch, cooled="sk-ant-oat01-cooled")
+        monkeypatch.setattr(au, "_fetch_codex_account_usage", lambda *a, **k: None)
+        reset = "2026-10-09T15:00:00+00:00"
+        payload = {
+            "five_hour": {"utilization": 100, "resets_at": reset},
+            "seven_day": {"utilization": 0.42, "resets_at": reset},
+        }
+
+        class _Resp:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return payload
+
+        class _Client:
+            def __init__(self, *a, **k):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def get(self, url, headers=None):
+                assert headers["Authorization"] == "Bearer sk-ant-oat01-cooled"
+                return _Resp()
+
+        monkeypatch.setattr(au.httpx, "Client", _Client)
+
+        (claude,) = au.build_account_usage_panel()
+
+        assert claude["id"] == "anthropic"
+        assert [(w["kind"], w["used_percent"]) for w in claude["windows"]] == [("five_hour", 100.0), ("weekly", 42.0)]
+
+    def test_a_cached_claude_account_is_not_evicted_when_it_hits_its_limit(self, monkeypatch):
+        table = {"openai-codex": None, "anthropic": _snapshot("anthropic", _win("five_hour", 90.0))}
+        _install(monkeypatch, table)
+        monkeypatch.setattr(au, "resolve_anthropic_token", lambda: "sk-ant-oat01-live")
+        au.build_account_usage_panel()
+
+        table["anthropic"] = None  # fetch now fails: the pool entry just went into cooldown
+        self._no_chat_token(monkeypatch, cooled="sk-ant-oat01-cooled")
+
+        (claude,) = au.build_account_usage_panel(refresh=True)
+
+        assert claude["stale"] is True
+
+
+# ── concurrent fetches for one profile/provider are serialized ─────────────────────────────
+import threading  # noqa: E402
+
+
+class _Gate:
+    """A fake Codex fetch whose first call blocks until released; later calls answer at once."""
+
+    def __init__(self, first_pct, later_pct):
+        self.first_pct, self.later_pct = first_pct, later_pct
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self.calls = 0
+        self._lock = threading.Lock()
+
+    def __call__(self, provider, **_kw):
+        if provider != "openai-codex":
+            return None
+        with self._lock:
+            self.calls += 1
+            n = self.calls
+        if n == 1:
+            self.entered.set()
+            assert self.release.wait(10)
+            return _snapshot(provider, _win("five_hour", self.first_pct))
+        return _snapshot(provider, _win("five_hour", self.later_pct))
+
+
+def _in_thread(results, name, **kw):
+    t = threading.Thread(target=lambda: results.__setitem__(name, au.build_account_usage_panel(**kw)))
+    t.start()
+    return t
+
+
+def _codex_pct(panel):
+    (codex,) = panel
+    return codex["windows"][0]["used_percent"]
+
+
+def test_an_older_in_flight_fetch_cannot_overwrite_a_newer_result(monkeypatch):
+    """A (automatic) starts and blocks; B (forced) is asked afterwards. B's answer
+    must be the one left in cache, however the two are scheduled."""
+    gate = _Gate(first_pct=10.0, later_pct=99.0)
+    monkeypatch.setattr(au, "fetch_account_usage", gate)
+    results = {}
+
+    a = _in_thread(results, "a")
+    assert gate.entered.wait(10)
+    b = _in_thread(results, "b", refresh=True)
+    threading.Event().wait(0.3)  # let B reach the key lock
+    gate.release.set()
+    a.join(10)
+    b.join(10)
+
+    assert _codex_pct(results["b"]) == 99.0
+    assert _codex_pct(au.build_account_usage_panel()) == 99.0  # cache holds the newer answer
+
+
+def test_a_plain_call_shares_the_outcome_of_a_fetch_already_in_flight(monkeypatch):
+    gate = _Gate(first_pct=10.0, later_pct=99.0)
+    monkeypatch.setattr(au, "fetch_account_usage", gate)
+    results = {}
+
+    a = _in_thread(results, "a")
+    assert gate.entered.wait(10)
+    b = _in_thread(results, "b")  # plain: no refresh
+    threading.Event().wait(0.3)
+    gate.release.set()
+    a.join(10)
+    b.join(10)
+
+    assert gate.calls == 1  # one upstream fetch served both callers
+    assert _codex_pct(results["a"]) == _codex_pct(results["b"]) == 10.0
+
+
+def test_providers_are_not_serialized_behind_each_other(monkeypatch):
+    """The lock is per (home, provider): a slow Codex must not hold up Claude."""
+    from hermes_constants import get_hermes_home
+
+    gate = _Gate(first_pct=10.0, later_pct=10.0)
+
+    def fake(provider, **kw):
+        if provider == "anthropic":
+            return _snapshot("anthropic", _win("five_hour", 62.0))
+        return gate(provider, **kw)
+
+    monkeypatch.setattr(au, "fetch_account_usage", fake)
+    results = {}
+
+    a = _in_thread(results, "a")
+    assert gate.entered.wait(10)
+    # Codex is blocked; an independent Claude fetch for the same home still completes.
+    claude = au._fetch_panel_entry("anthropic", "Claude", str(get_hermes_home()), False)
+    assert claude["windows"][0]["used_percent"] == 62.0
+    gate.release.set()
+    a.join(10)

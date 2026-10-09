@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import httpx
 
 from agent.anthropic_adapter import _is_oauth_token, resolve_anthropic_token
+from agent.anthropic_credentials import resolve_anthropic_cooled_down_oauth_token
 from hermes_cli.auth import (
     AuthError,
     _codex_pool_rate_limit_status,
@@ -777,6 +778,11 @@ def redeem_codex_reset_credit(
 def _fetch_anthropic_account_usage() -> Optional[AccountUsageSnapshot]:
     token = (resolve_anthropic_token() or "").strip()
     if not token:
+        # A pool-only OAuth login benched by a 429 quota cooldown is skipped by
+        # the chat resolver but is still a valid account, and "at its limit" is
+        # what usage diagnostics most need to show (same stance as Codex).
+        token = (resolve_anthropic_cooled_down_oauth_token() or "").strip()
+    if not token:
         return None
     if not _is_oauth_token(token):
         return AccountUsageSnapshot(
@@ -948,6 +954,14 @@ _PANEL_STALE_MAX_S = 30 * 60.0
 _PANEL_FETCH_TIMEOUT_S = 12.0
 
 _panel_lock = threading.Lock()
+# One fetch at a time per (home, provider). Without it an older in-flight fetch
+# can finish after a newer one and write the previous account back over it (a
+# forced refresh overlapping an automatic one, or two clients), and that stale
+# answer is then served from cache for the whole TTL.
+_panel_key_locks: dict[tuple[str, str], threading.Lock] = {}
+# (home, provider) -> monotonic time the last fetch ATTEMPT finished (success or
+# failure), so a caller that waited on the key lock can share that outcome.
+_panel_last_attempt: dict[tuple[str, str], float] = {}
 # (hermes_home, provider) -> (monotonic fetched-at, payload). Keyed by home so a
 # secondary profile never reads the default profile's account.
 _panel_cache: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
@@ -1004,7 +1018,10 @@ def _panel_has_credentials(provider: str) -> bool:
             # Only an OAuth login can serve the usage API: a plain API key
             # (what a user who switched away from OAuth has) is "no account".
             token = (resolve_anthropic_token() or "").strip()
-            return bool(token) and _is_oauth_token(token)
+            if token:
+                return _is_oauth_token(token)
+            # Nothing resolvable for chat: a quota-cooled OAuth login still counts.
+            return bool(resolve_anthropic_cooled_down_oauth_token())
     except (AuthError, RuntimeError):
         return False
     except Exception:
@@ -1013,13 +1030,32 @@ def _panel_has_credentials(provider: str) -> bool:
 
 
 def _fetch_panel_entry(provider: str, label: str, home: str, refresh: bool) -> Optional[dict[str, Any]]:
+    key = (home, provider)
+    asked_at = time.monotonic()
+    with _panel_lock:
+        key_lock = _panel_key_locks.setdefault(key, threading.Lock())
+    with key_lock:
+        return _fetch_panel_entry_locked(provider, label, key, asked_at, refresh)
+
+
+def _fetch_panel_entry_locked(
+    provider: str, label: str, key: tuple[str, str], asked_at: float, refresh: bool
+) -> Optional[dict[str, Any]]:
     from agent.deadline import run_bounded_sync
 
-    key = (home, provider)
     with _panel_lock:
         cached = _panel_cache.get(key)
-    if cached and not refresh and time.monotonic() - cached[0] < _PANEL_TTL_S:
-        return cached[1]
+        last_attempt = _panel_last_attempt.get(key, 0.0)
+
+    if not refresh:
+        # An ordinary call may share whatever a concurrent call just settled
+        # (including a failure) rather than queueing a duplicate fetch. A forced
+        # refresh never does: it was asked AFTER the in-flight fetch began, so
+        # taking that fetch's answer could hand back the old account.
+        if last_attempt >= asked_at:
+            return cached[1] if cached else None
+        if cached and time.monotonic() - cached[0] < _PANEL_TTL_S:
+            return cached[1]
 
     entry: Optional[dict[str, Any]] = None
     try:
@@ -1033,7 +1069,11 @@ def _fetch_panel_entry(provider: str, label: str, home: str, refresh: bool) -> O
     except Exception:
         logger.debug("account usage ▸ panel fetch failed for %s (fail-open)", provider, exc_info=True)
 
-    if entry is None:
+    try:
+        if entry is not None:
+            with _panel_lock:
+                _panel_cache[key] = (time.monotonic(), entry)
+            return entry
         if cached is None:
             return None
         # ``fetch_account_usage`` answers None for BOTH "no credentials" and a
@@ -1053,10 +1093,9 @@ def _fetch_panel_entry(provider: str, label: str, home: str, refresh: bool) -> O
             # the TTL must not republish the old numbers as fresh.
             _panel_cache[key] = (cached[0], degraded)
         return degraded
-
-    with _panel_lock:
-        _panel_cache[key] = (time.monotonic(), entry)
-    return entry
+    finally:
+        with _panel_lock:
+            _panel_last_attempt[key] = time.monotonic()
 
 
 def build_account_usage_panel(*, refresh: bool = False) -> list[dict[str, Any]]:
