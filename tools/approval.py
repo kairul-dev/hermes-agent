@@ -2630,9 +2630,7 @@ def human_wait_ceiling() -> float:
     hand to ``Lock.acquire(timeout=...)`` / ``Thread.join(timeout=...)``
     (#83220 macOS time_t overflow).
     """
-    from agent.deadline import clamp_timeout
-
-    return clamp_timeout(float(_get_approval_timeout()) + HUMAN_WAIT_MARGIN_S)
+    return float(_get_approval_timeout()) + HUMAN_WAIT_MARGIN_S
 
 
 def _clamped_window_seconds(started: float, now: float, ceiling: float) -> float:
