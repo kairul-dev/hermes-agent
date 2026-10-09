@@ -65,6 +65,16 @@ class TestClampTimeout:
         assert lock.acquire(timeout=big)
         lock.release()
 
+    def test_approval_margin_is_platform_safe(self, monkeypatch):
+        from tools import approval
+
+        monkeypatch.setattr(approval, "_get_approval_config", lambda: {"timeout": 10**18})
+        ceiling = approval.human_wait_ceiling()
+        assert ceiling <= threading.TIMEOUT_MAX
+        lock = threading.Lock()
+        assert lock.acquire(timeout=ceiling)
+        lock.release()
+
     def test_nan_and_junk_treated_as_unbounded(self):
         assert clamp_timeout(float("nan")) is None
         assert clamp_timeout("not-a-number") is None  # type: ignore[arg-type]
