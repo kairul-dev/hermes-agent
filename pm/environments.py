@@ -370,7 +370,7 @@ def venv_command(project_root: Path, venv: Path, options: tuple[str, ...] | list
 
 
 def venv_python_version(venv: Path) -> tuple[int, int] | None:
-    """The interpreter version a POSIX venv actually holds, or ``None``.
+    """The interpreter version recorded by a stdlib/uv venv, or ``None``.
 
     ``site_packages`` must not date the tree from the CALLER's ``sys.version_info``:
     an update can rebuild the dependency environment with a different Python than
@@ -382,7 +382,7 @@ def venv_python_version(venv: Path) -> tuple[int, int] | None:
     try:
         for line in (venv / "pyvenv.cfg").read_text(encoding="utf-8-sig").splitlines():
             key, _, value = line.partition("=")
-            if key.strip() != "version":
+            if key.strip() not in ("version", "version_info"):
                 continue
             major, _, rest = value.strip().partition(".")
             minor, _, _ = rest.partition(".")
@@ -409,6 +409,33 @@ def site_packages(venv: Path) -> Path:
         return venv / "Lib/site-packages"
     version = venv_python_version(venv) or (sys.version_info.major, sys.version_info.minor)
     return venv / f"lib/python{version[0]}.{version[1]}/site-packages"
+
+
+def _dependency_relaunch_python(environment: Path) -> Path | None:
+    """Do not load a generation built for a different Python minor version."""
+    import sys
+
+    version = venv_python_version(environment)
+    if version is None or version == tuple(sys.version_info[:2]):
+        return None
+    python = venv_python(environment)
+    if not python.is_file():
+        raise RuntimeError(f"dependency environment requires Python {version[0]}.{version[1]}, "
+                           f"but its interpreter is missing: {python}")
+    if os.path.normcase(os.path.abspath(python)) == os.path.normcase(os.path.abspath(sys.executable)):
+        raise RuntimeError(f"dependency environment requires Python {version[0]}.{version[1]}, "
+                           "but its interpreter reports a different version")
+    return python
+
+
+def dependency_relaunch_python(project_root: Path) -> Path | None:
+    """Read-only boot handoff, independent of lazy installs or update ownership.
+
+    Use the committed generation's own Python, not a newer store pin or a
+    developer's base venv. Matching and unrecorded interpreters retain their owner.
+    """
+    environment = committed_venv(project_root)
+    return _dependency_relaunch_python(environment) if environment is not None else None
 
 
 def running_from_selected_environment(project_root: Path) -> bool:
@@ -486,6 +513,11 @@ def activate_dependencies(project_root: Path) -> None:
             return  # External/Nix interpreter owns its original sys.path.
     if not selected.is_dir():
         raise RuntimeError(f"dependency environment has no site-packages: {selected}")
+    # Defend direct callers and a selection changed since bootstrap's read.
+    if python := _dependency_relaunch_python(environment):
+        version = venv_python_version(environment)
+        raise RuntimeError(f"dependency environment requires Python {version[0]}.{version[1]}; "
+                           f"relaunch with {python} before activating dependencies")
     import site
 
     sys.path[:] = [entry for entry in sys.path

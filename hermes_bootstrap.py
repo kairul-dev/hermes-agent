@@ -574,7 +574,21 @@ class RelaunchExit(SystemExit):
     relaunched = True
 
 
-from pm.environments import activate_dependencies, install_state_permission_message
+def _relaunch_with_python(python: Path) -> None:
+    """Restart before third-party imports, preserving this invocation and status."""
+    from hermes_cli.venv_sync import relaunch_command
+
+    main_spec = getattr(sys.modules.get("__main__"), "__spec__", None)
+    command = relaunch_command(python, _root, sys.argv, sys.orig_argv,
+                               getattr(main_spec, "name", None))
+    if os.name == "nt":
+        import subprocess
+
+        raise RelaunchExit(subprocess.call(command))
+    os.execv(str(python), command)
+
+
+from pm.environments import activate_dependencies, dependency_relaunch_python, install_state_permission_message
 from hermes_cli._early_recovery import recover_if_needed
 
 from hermes_cli._parser import command_argv
@@ -582,21 +596,12 @@ from hermes_cli._parser import command_argv
 # Repair needs only stdlib. Do not activate the damaged tree to reach it.
 _pm_repair = command_argv(sys.argv[1:])[:2] == ["pm", "repair"]
 if not _pm_repair:
-    from hermes_cli.venv_sync import prepare_launch, relaunch_command
+    from hermes_cli.venv_sync import prepare_launch
 
     try:
         _launch_python = prepare_launch(_root, sys.argv[1:])
         if _launch_python is not None:
-            _main_spec = getattr(sys.modules.get("__main__"), "__spec__", None)
-            _command = relaunch_command(
-                _launch_python, _root, sys.argv, sys.orig_argv,
-                getattr(_main_spec, "name", None),
-            )
-            if os.name == "nt":
-                import subprocess
-
-                raise RelaunchExit(subprocess.call(_command))
-            os.execv(str(_launch_python), _command)
+            _relaunch_with_python(_launch_python)
     except Exception as exc:
         if isinstance(exc, PermissionError) and (message := install_state_permission_message(_root, exc)):
             print(f"hermes: {message}", file=sys.stderr)
@@ -610,6 +615,11 @@ if not _pm_repair:
               file=sys.stderr)
     try:
         recover_if_needed(_root)
+        # ABI handoff is not an installation: metadata/offline/developer launches
+        # must not load a committed generation into an incompatible interpreter.
+        _dependency_python = dependency_relaunch_python(_root)
+        if _dependency_python is not None:
+            _relaunch_with_python(_dependency_python)
         activate_dependencies(_root)
     except (RuntimeError, OSError) as exc:
         if isinstance(exc, PermissionError) and (message := install_state_permission_message(_root, exc)):

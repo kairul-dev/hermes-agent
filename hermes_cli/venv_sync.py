@@ -346,7 +346,8 @@ def prepare_launch(project_root: Path, argv: list[str]) -> Path | None:
     A supervised child leaves that tail to ``hermes update`` when its dependencies
     are current: its manager restarts it on every start, so a sticky marker would
     re-run the tail (and its environment builds) on each boot until the disk fills.
-    Return the store interpreter when this process must restart cleanly.
+    Return the selected dependency interpreter when this process must restart cleanly,
+    falling back to the store interpreter for unrecorded/unknown legacy environments.
     """
     import os
     import sys
@@ -429,7 +430,18 @@ def prepare_launch(project_root: Path, argv: list[str]) -> Path | None:
                 _finish_source_update(root, current=current, pending=pending)
         finally:
             lock.release()
-    python = resolve_store_python(root)
+    # Completion can commit a different generation. Read its interpreter only
+    # afterwards: a newer store pin may have a different ABI and would bounce
+    # forever between this launch decision and bootstrap's ABI handoff.
+    from pm.environments import committed_venv, venv_python, venv_python_version
+
+    environment = committed_venv(root)
+    if environment is not None and venv_python_version(environment) is not None:
+        python = venv_python(environment)
+        if not python.is_file():
+            raise RuntimeError(f"dependency environment interpreter is missing: {python}")
+    else:
+        python = resolve_store_python(root)
     if python is None:
         raise RuntimeError("source update has no managed Python; run `hermes pm install`")
     # Lexical identity, never resolve(): PM spells the store path through

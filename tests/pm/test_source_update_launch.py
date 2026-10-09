@@ -19,7 +19,7 @@ import pytest
 
 import pm
 from hermes_cli import venv_sync
-from pm.environments import install_state_dir, runtime_facts_path, selected_venv, site_packages
+from pm.environments import install_state_dir, runtime_facts_path, selected_venv, site_packages, venv_python
 from pm import paths
 from pm.lock import Facts
 from pm.package import InstallError
@@ -144,7 +144,7 @@ def test_source_python_pin_update_survives_real_gc(source_launch, tmp_path, monk
         assert not pm.venv_is_current(project_root=root)
     previous = selected_venv(root)
     if update == "launch":
-        assert venv_sync.prepare_launch(root, []) == new_python
+        assert venv_sync.prepare_launch(root, []) == venv_python(selected_venv(root))
         # The heal finished the whole tail, with update wording, through the checkout's own completion.
         calls = [json.loads(line) for line in (tmp_path / "completion-calls").read_text().splitlines()]
         assert calls == [["--source", str(root), "--finish-update"]]
@@ -191,7 +191,7 @@ def test_launcher_publication_failure_retries_without_rebuilding_dependencies(so
     assert not result["ok"] and "launcher publication failed" in result["detail"]
     assert pm.venv_is_current(project_root=root)
     committed = runtime_facts_path(root).read_bytes()
-    assert venv_sync.prepare_launch(root, []) == store_python
+    assert venv_sync.prepare_launch(root, []) == venv_python(selected_venv(root))
     assert runtime_facts_path(root).read_bytes() == committed
     assert (root / ".hermes" / "bin" / "hermes").is_file()
 
@@ -240,7 +240,7 @@ def test_launch_without_marker_publishes_then_skips_and_rebuilds_on_lock_change(
     assert not (root / ".update-incomplete").exists()
     assert not pm.venv_is_current(project_root=root)
 
-    assert venv_sync.prepare_launch(root, []) == store_python
+    assert venv_sync.prepare_launch(root, []) == venv_python(selected_venv(root))
     first = _fact(root)
     assert first["extras"] == ["all"]
     assert pm.venv_is_current(project_root=root)
@@ -250,7 +250,7 @@ def test_launch_without_marker_publishes_then_skips_and_rebuilds_on_lock_change(
     assert receipts
 
     # A caller still in its old interpreter must re-exec, but must not sync again.
-    assert venv_sync.prepare_launch(root, []) == store_python
+    assert venv_sync.prepare_launch(root, []) == venv_python(selected_venv(root))
     assert runtime_facts_path(root).read_bytes() == facts_bytes
     assert set((install_state_dir(root) / "environments").iterdir()) == generations
     assert _receipts(tmp_path) == receipts, "current launch performed another sync"
@@ -258,7 +258,7 @@ def test_launch_without_marker_publishes_then_skips_and_rebuilds_on_lock_change(
     lock = root / "uv.lock"
     lock.write_bytes(lock.read_bytes() + b"\n# source update changes the committed lock\n")
     assert not pm.venv_is_current(project_root=root)
-    assert venv_sync.prepare_launch(root, []) == store_python
+    assert venv_sync.prepare_launch(root, []) == venv_python(selected_venv(root))
     rebuilt = _fact(root)
     assert rebuilt["stamp"] != first["stamp"]
     assert rebuilt["environment"] != first["environment"]
@@ -282,7 +282,7 @@ def test_process_spawned_by_the_update_commits_dependencies_but_not_the_tail(sou
     marker.write_text(f"{os.getppid()}\n{int(time.time())}\n", encoding="utf-8")  # the updater is our ancestor
     assert committed_venv(root) is None
 
-    assert venv_sync.prepare_launch(root, []) == store_python
+    assert venv_sync.prepare_launch(root, []) == venv_python(selected_venv(root))
     assert committed_venv(root) == Path(_fact(root)["environment"])
     assert not (tmp_path / "completion-calls").exists(), "the tail is the updater's, not its child's"
     assert not venv_sync.completion_pending_path(root).exists()
@@ -321,7 +321,7 @@ def test_failed_real_sync_preserves_previous_selection_and_retries(source_launch
         assert all(marker.read_text(encoding="utf-8") == "legacy pending install" for marker in markers)
 
     lock.write_bytes(valid_lock + b"\n# corrected source update\n")
-    assert venv_sync.prepare_launch(root, []) == store_python
+    assert venv_sync.prepare_launch(root, []) == venv_python(selected_venv(root))
     rebuilt = _fact(root)
     assert rebuilt["environment"] != previous["environment"]
     assert rebuilt["extras"] == ["launch-extra"]
@@ -342,7 +342,7 @@ def test_source_update_that_removes_a_recorded_extra_still_syncs(source_launch):
     pm.lock_project(root, offline=True, explicit=True)
     assert not pm.venv_is_current(project_root=root)
 
-    assert venv_sync.prepare_launch(root, []) == store_python
+    assert venv_sync.prepare_launch(root, []) == venv_python(selected_venv(root))
     assert _fact(root)["extras"] == ["all"]
     assert pm.venv_is_current(project_root=root)
 
@@ -356,7 +356,7 @@ def test_recorded_extra_spelled_differently_from_its_declaration_survives(source
 
     lock = root / "uv.lock"
     lock.write_bytes(lock.read_bytes() + b"\n# source update changes the committed lock\n")
-    assert venv_sync.prepare_launch(root, []) == store_python
+    assert venv_sync.prepare_launch(root, []) == venv_python(selected_venv(root))
     assert _fact(root)["extras"] == ["all", "launch_extra"]
     assert pm.venv_is_current(project_root=root)
 
@@ -435,7 +435,7 @@ def test_real_bootstrap_reexecs_before_app_imports(source_launch, tmp_path, isol
     )
     assert result.returncode == 0, result.stderr
     output = json.loads(result.stdout)
-    assert output["executable"] == str(store_python)
+    assert output["executable"] == str(venv_python(selected_venv(root)))
     assert output["args"] == args
     assert output["launch_current"] is True
     assert output["module"] == (None if mode == "script" else "launch_probe")
@@ -557,8 +557,8 @@ def test_capped_completion_attempts_leave_marker_for_explicit_update(source_laun
 
     # The supervised-child carve-out does not apply: an unsupervised launch
     # would have re-run the tail here; capped, it must not. The launch itself
-    # still resolves normally (the store python), only the tail is skipped.
-    assert venv_sync.prepare_launch(root, []) == store_python
+    # still resolves normally (the committed generation), only the tail is skipped.
+    assert venv_sync.prepare_launch(root, []) == venv_python(selected_venv(root))
     out = capsys.readouterr().err
     assert "could not be finished automatically" in out
     assert "hermes update" in out
@@ -587,7 +587,7 @@ def test_failed_tail_attempt_is_counted_and_success_clears_it(source_launch, tmp
     old = 1.0
     os.utime(_completion_attempts_path(root), (old, old))
     # A successful retry still launches normally and clears the obligation.
-    assert venv_sync.prepare_launch(root, []) == store_python
+    assert venv_sync.prepare_launch(root, []) == venv_python(selected_venv(root))
     assert not completion_pending_path(root).exists()
     assert not _completion_attempts_path(root).exists(), "success cleared the attempt record"
 
