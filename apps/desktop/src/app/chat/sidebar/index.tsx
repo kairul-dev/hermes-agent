@@ -5,6 +5,8 @@ import type * as React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router'
 
+import { SubscriptionUsagePanel } from './subscription-usage-panel'
+
 import { PlatformAvatar } from '@/app/messaging/platform-icon'
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
@@ -2058,6 +2060,8 @@ export function ChatSidebar({
         )}
 
         {!showSessionSections && <SidebarBlankState onNewProject={openProjectCreate} />}
+
+        <SubscriptionUsagePanel />
 
         {/* Off, the statusbar's profile dropdown (beside the gateway switcher)
             takes over — the rail is a duplicate door for bot-only setups. */}

@@ -10,6 +10,7 @@ import { registry } from '@/contrib/registry'
 import { $connectionsRegistry } from '@/store/connection-registry-state'
 import { $sidebarMessagingOpenIds, setSidebarAgentsGrouped, setSidebarGrouping } from '@/store/layout'
 import { $activeGatewayProfile, $profiles, setShowAllProfiles } from '@/store/profile'
+import { $profileRailVisible } from '@/store/profile-rail-prefs'
 import { $projectScope, ALL_PROJECTS } from '@/store/project-scope'
 import { $projectTree } from '@/store/projects'
 import {
@@ -116,6 +117,24 @@ describe('ChatSidebar navigation activity', () => {
     $removedSessionIds.set(new Set())
     $layoutTree.set(null)
     noteActiveTreeGroup(null)
+  })
+
+  it('places subscription usage outside the scrolling sessions and above the profile rail', () => {
+    const wasVisible = $profileRailVisible.get()
+    $profileRailVisible.set(true)
+    renderSidebar('/kanban', 'extension')
+    $profileRailVisible.set(wasVisible)
+    const panel = screen.getByRole('region', { name: 'Subscription usage' })
+    const content = panel.closest('[data-sidebar="content"]')!
+
+    expect(panel.parentElement).toBe(content)
+    expect(panel.previousElementSibling).not.toBeNull()
+    const rail = content.querySelector('[data-slot="profile-rail"]')
+
+    expect(rail).not.toBeNull()
+    expect(panel.nextElementSibling?.contains(rail)).toBe(true)
+    expect(panel.closest('[data-slot="sidebar"]')).not.toBeNull()
+    expect(panel.querySelector('[data-sidebar="menu"]')).toBeNull()
   })
 
   it('keeps navigation and session activity coherent with the focused pane', () => {
