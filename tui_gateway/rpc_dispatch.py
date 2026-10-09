@@ -22,6 +22,11 @@ def _handle_admitted_request(req: dict) -> dict | None:
     if not (fn := _methods.get(method)):
         return _err(rid, -32601, f"unknown method: {method} — the client and the Hermes backend are out of sync "
                     "(different versions); run `hermes update` and restart both")
+    # Strict shared mode: authorize native bypass paths (attach/control/read/answer) before the
+    # handler runs. Ordinary mode returns None immediately — zero behavior change. The adapter's
+    # wrapped calls re-enter here too, so both paths share one enforcement point.
+    if (shared_problem := _shared_native_admission_error(rid, method, params)) is not None:
+        return shared_problem
     # Test doubles register straight into ``_methods`` without a contract; every production
     # handler comes through ``register_method`` and therefore has one.
     contract = _contracts.METHODS.get(method)

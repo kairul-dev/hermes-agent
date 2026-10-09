@@ -82,6 +82,27 @@ def _parse_model_config(raw: Any) -> dict[str, Any]:
     return dict(raw) if isinstance(raw, dict) else {}
 
 
+def _parse_model_config_for_write(raw: Any) -> dict[str, Any]:
+    """Writes may not turn damaged policy-bearing JSON into unrestricted absence."""
+    if raw is None or raw == "":
+        return {}
+    try:
+        value = json.loads(raw) if isinstance(raw, str) else raw
+    except (ValueError, TypeError) as exc:
+        raise ValueError("invalid session model_config") from exc
+    if not isinstance(value, dict):
+        raise ValueError("invalid session model_config")
+    return dict(value)
+
+
+def _preserve_current_policy(incoming, current):
+    """Non-policy writers preserve the exact durable policy, including absence/corruption."""
+    incoming.pop("_orchestration", None)
+    if "_orchestration" in current:
+        incoming["_orchestration"] = current["_orchestration"]
+    return incoming
+
+
 def _cwd_prefix_clause(cwd_prefix: str) -> tuple[str, list[str]]:
     prefix = cwd_prefix.rstrip("/\\") or cwd_prefix
     # ``_``/``%`` are LIKE wildcards but ordinary path characters: unescaped, a
@@ -396,6 +417,11 @@ class SessionSessionsMixin:
         if not (profile_name or "").strip():
             profile_name = self._own_profile_name()
         def _do(conn):
+            incoming_config = model_config
+            existing = conn.execute("SELECT model_config FROM sessions WHERE id = ?", (session_id,)).fetchone()
+            if existing is not None and model_config is not None:
+                incoming_config = _preserve_current_policy(
+                    _parse_model_config_for_write(model_config), _parse_model_config_for_write(existing[0]))
             system_prompt_hash = self._store_system_prompt(conn, system_prompt)
             conn.execute(
                 """INSERT INTO sessions (
@@ -444,7 +470,7 @@ class SessionSessionsMixin:
 """ + _UPSERT_KEEP_EXISTING_SQL,
                 (
                     session_id, source, source, user_id, session_key, chat_id, chat_type, thread_id, model,
-                    json.dumps(model_config) if model_config else None, system_prompt_hash,
+                    json.dumps(incoming_config) if incoming_config else None, system_prompt_hash,
                     parent_session_id, cwd, profile_name, transport_profile, git_repo_root, origin_json,
                     display_name, time.time(),
                 ),
@@ -728,12 +754,19 @@ class SessionSessionsMixin:
     def update_session_meta(
         self, session_id: str, model_config_json: str, model: Optional[str] = None,
     ) -> None:
-        """Update model_config and (COALESCE) optionally model."""
+        """Replace model metadata while atomically retaining the CURRENT policy/absence."""
         self.flush_token_counts()  # barrier against queued token deltas — see update_session_model
-        self._write_sql(
-            "UPDATE sessions SET model_config = ?, model = COALESCE(?, model) WHERE id = ?",
-            (model_config_json, model, session_id),
-        )
+        def _do(conn):
+            row = conn.execute("SELECT model_config FROM sessions WHERE id = ?", (session_id,)).fetchone()
+            if row is None:
+                return
+            config = _preserve_current_policy(
+                _parse_model_config_for_write(model_config_json), _parse_model_config_for_write(row[0]))
+            conn.execute(
+                "UPDATE sessions SET model_config = ?, model = COALESCE(?, model) WHERE id = ?",
+                (json.dumps(config) if config else None, model, session_id),
+            )
+        self._execute_write(_do)
 
     def update_system_prompt(self, session_id: str, system_prompt: Optional[str]) -> None:
         """Store the full assembled system prompt snapshot."""
@@ -791,41 +824,71 @@ class SessionSessionsMixin:
         self, session_id: str, patch: dict[str, Any],
         sql: str = "UPDATE sessions SET model_config = ? WHERE id = ?",
         params: Optional[Callable[[Optional[str]], tuple]] = None,
+        *, identity_guard: Optional[Callable[[], bool]] = None, policy_write: bool = False,
     ) -> None:
-        """Merge ``patch`` into model_config then run ``sql`` with ``params(merged)`` in one write
-        transaction; no-op when the row doesn't exist."""
+        """Merge ``patch`` and write on one connection; fence policy writes before SQL."""
+        from agent.session_orchestration import SessionOrchestrationChangedError
+
         def _do(conn):
-            merged = self._merge_model_config_json(conn, session_id, patch)
+            if identity_guard is not None and not identity_guard():
+                raise SessionOrchestrationChangedError("Current session changed; retry with the current session")
+            if policy_write and "_orchestration" in patch:
+                row = conn.execute("SELECT ended_at, end_reason FROM sessions WHERE id = ?", (session_id,)).fetchone()
+                if row is not None and row[0] is not None and row[1] == "compression":
+                    raise SessionOrchestrationChangedError("Current session changed after compression; retry with the current session")
+            merged = self._merge_model_config_json(conn, session_id, patch, policy_write=policy_write)
             if merged is _MODEL_CONFIG_ROW_MISSING:
                 return
             conn.execute(sql, params(merged) if params else (merged, session_id))
+            if identity_guard is not None and not identity_guard():
+                raise SessionOrchestrationChangedError("Current session changed; retry with the current session")
         self._execute_write(_do)
 
     def _merge_model_config_json(
-        self, conn, session_id: str, patch: dict[str, Any], *, on_missing: str = "skip",
+        self, conn, session_id: str, patch: dict[str, Any], *, on_missing: str = "skip", policy_write: bool = False,
     ):
-        """SELECT + tolerant-parse + merge ``patch`` into model_config (the one place that keeps
-        ``_branched_from``/``_delegate_from`` alive); ``None`` deletes a key. Returns serialized JSON
+        """SELECT + strict-parse + merge within a transaction; only explicit policy writes
+        may replace ``_orchestration``. ``None`` deletes other keys. Returns serialized JSON
         (``None`` when empty) or ``_MODEL_CONFIG_ROW_MISSING`` (``on_missing="raise"`` → ValueError)."""
         row = conn.execute("SELECT model_config FROM sessions WHERE id = ?", (session_id,)).fetchone()
         if row is None:
             if on_missing == "raise":
                 raise ValueError(f"Session not found: {session_id}")
             return _MODEL_CONFIG_ROW_MISSING
-        config = _parse_model_config(row[0])
+        config = _parse_model_config_for_write(row[0])
         for key, value in patch.items():
+            if key == "_orchestration" and not policy_write:
+                continue
             if value is None:
                 config.pop(key, None)
             else:
                 config[key] = value
         return json.dumps(config) if config else None
 
-    def patch_session_model_config(self, session_id: str, patch: dict[str, Any]) -> None:
+    def patch_session_model_config(
+        self, session_id: str, patch: dict[str, Any], *, identity_guard: Optional[Callable[[], bool]] = None,
+    ) -> None:
         """Merge ``patch`` into model_config atomically (``None`` removes a key);
         no-op when the row or patch is empty."""
         if not session_id or not patch:
             return
-        self._write_model_config_patch(session_id, patch)
+        self._write_model_config_patch(session_id, patch, identity_guard=identity_guard, policy_write=True)
+
+    def patch_session_runtime_config(
+        self, session_id: str, patch: Dict[str, Any], model: Optional[str] = None,
+    ) -> None:
+        """Merge runtime-owned keys and the model column in one transaction.
+
+        Unrelated session settings survive concurrent RPC writes; None removes a
+        runtime key using the same semantics as patch_session_model_config.
+        """
+        if not session_id:
+            return
+        self._write_model_config_patch(
+            session_id, {key: value for key, value in patch.items() if key != "_orchestration"},
+            "UPDATE sessions SET model_config = ?, model = COALESCE(?, model) WHERE id = ?",
+            lambda merged: (merged, model, session_id),
+        )
 
     def get_session_model_config_value(self, session_id: str, key: str, default: Any = None) -> Any:
         """Read one key out of a session's model_config JSON (tolerant parse)."""

@@ -257,11 +257,14 @@ class SubagentLifecycleService:
                 raise SubagentLifecycleError("Duplicate correlation_id for this parent session.")
         # Lazy: delegate construction stays internal, plugins never import private delegation helpers.
         from tools.delegate_tool import _build_child_preserving_parent_tools, DEFAULT_MAX_ITERATIONS
-        child = _build_child_preserving_parent_tools(
-            task_index=0, goal=request.goal, context=request.context,
-            toolsets=list(request.allowed_toolsets) if request.allowed_toolsets else None,
-            model=request.model, max_iterations=DEFAULT_MAX_ITERATIONS, task_count=1, parent_agent=parent, role=request.role,
-        )
+        try:
+            child = _build_child_preserving_parent_tools(
+                task_index=0, goal=request.goal, context=request.context,
+                toolsets=list(request.allowed_toolsets) if request.allowed_toolsets else None,
+                model=request.model, max_iterations=DEFAULT_MAX_ITERATIONS, task_count=1, parent_agent=parent, role=request.role,
+            )
+        except ValueError as exc:
+            raise SubagentLifecycleError(str(exc)) from exc
         subagent_id = str(getattr(child, "_subagent_id", "") or "")
         if not subagent_id:
             raise SubagentLifecycleError("Hermes failed to assign a child identity.")

@@ -13,6 +13,7 @@ from .common import (OpenModel, PendingApproval, ProfileParams, SessionLiveInfo,
                      Usage)
 from .connectors_operation import ConnectionRequestPayload
 from .registry import method
+from .shared_runtime import PendingRequest, SessionAttention
 
 
 # ── shared live-session snapshot ──────────────────────────────────────────────────────────────
@@ -97,6 +98,10 @@ class LiveSessionSnapshot(Result):
     pending_connection: ConnectionRequestPayload | None = None
     todo_state: TodoState | None = None
     auto_continue: AutoContinue | None = None
+    # Canonical session attention + the FULL pending-request identity set (authoritative on a
+    # canonical snapshot: an absent kind is authoritative, unlike the legacy pending_* hints).
+    session_attention: SessionAttention | None = None
+    pending_requests: list[PendingRequest] | None = None
 
 
 # ── session.create ────────────────────────────────────────────────────────────────────────────
@@ -282,6 +287,8 @@ class SessionActiveItem(Result):
     started_at: float
     status: LiveSessionStatus
     title: str
+    session_attention: SessionAttention | None = None
+    pending_requests: list[PendingRequest] | None = None
 
 
 class SessionActiveListResult(Result):

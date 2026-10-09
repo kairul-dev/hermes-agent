@@ -151,9 +151,14 @@ def _auto_resume_denied_source(row: dict) -> bool:
     return source in _LISTING_DENY_SOURCES or source == "unknown"
 
 
-def _listing_rows(db, limit: int, **kwargs) -> list:
-    """Human-facing ``list_sessions_rich`` rows (most recent first), deny-list applied."""
+def _listing_rows(db, limit: int, *, require_owner: bool = False, **kwargs) -> list:
+    """Human-facing rows; unavailable policy never disables ownership enforcement."""
+    policy = _shared_runtime_policy_state()
+    if policy is None:
+        return []
     rows = db.list_sessions_rich(source=None, limit=limit, order_by_last_active=True, compact_rows=True, **kwargs)
+    if require_owner or policy is not False:
+        rows = [row for row in rows if _shared_record_owner_matches(current_transport(), row, "user_id")]
     return [row for row in rows if not _denied_source(row)]
 
 
@@ -335,6 +340,46 @@ def _seed_row(record: dict) -> None:
         logger.debug("seeded-session title write failed for %s; pending_title stays queued", key, exc_info=True)
 
 
+def _serialize_session_retry(fn):
+    """Keyed creations publish once even when two clients retry concurrently.
+
+    A separate lock leaves session close/resume and unkeyed creates free during branch builds.
+    The wrapped helper is rebound with this closure by method_ctx, like _session_method.
+    """
+    def serialized(rid, params, *args, **kwargs):
+        with (_session_idempotency_lock if _str_param(params, "idempotency_key")
+              else contextlib.nullcontext()):
+            return fn(rid, params, *args, **kwargs)
+    return serialized
+
+
+def _session_retry_key(rid, params, operation, profile_home, parent_key=None):
+    """Owner-scoped retry identity; fallback RPC pairs share an operation family."""
+    key = _str_param(params, "idempotency_key") or None
+    if key is None:
+        return None, None
+    policy = _shared_runtime_policy_state()
+    caller = current_transport()
+    if caller is None and policy is False:
+        caller = _stdio_transport
+    verifiable, owner = _shared_owner_key(caller)
+    if policy is None or not verifiable:
+        return None, _err(rid, 4403, "shared runtime: session retry ownership could not be verified")
+    home = str(Path(profile_home).resolve()) if profile_home else None
+    return (operation, owner, home, parent_key, key), None
+
+
+def _session_retry_owner_error(rid, session):
+    policy = _shared_runtime_policy_state()
+    caller = current_transport()
+    if caller is None and policy is False:
+        caller = _stdio_transport
+    if policy is None or not _shared_record_owner_matches(caller, session, "auth_user_id"):
+        return _err(rid, 4403, "shared runtime: session retry ownership could not be verified")
+    return None
+
+
+@_serialize_session_retry
 def _create_session(rid, params: dict, *, copy_parent_history: bool = False) -> dict:
     """``session.create``; ``copy_parent_history`` (``session.branch_stored``) reads the parent's
     transcript server-side and omits it from the reply."""
@@ -348,7 +393,9 @@ def _create_session(rid, params: dict, *, copy_parent_history: bool = False) -> 
     # Idempotency: a client retrying a create whose first response was lost
     # should get back the SAME session, not a fresh one (which would leave a
     # duplicate child). The caller supplies a stable key per logical create.
-    idem_key = _str_param(params, "idempotency_key") or None
+    idem_key, retry_error = _session_retry_key(rid, params, "create", profile_home)
+    if retry_error is not None:
+        return retry_error
     if idem_key is not None:
         with _sessions_lock:
             # Drop expired entries while we're here.
@@ -361,6 +408,8 @@ def _create_session(rid, params: dict, *, copy_parent_history: bool = False) -> 
                 existing_sid, _ = existing
                 session = _sessions.get(existing_sid)
                 if session is not None:
+                    if (owner_error := _session_retry_owner_error(rid, session)) is not None:
+                        return owner_error
                     # Refresh the TTL so back-to-back retries don't age out mid-flight.
                     _idempotency_keys[idem_key] = (existing_sid, now_for_gc)
                     history = session["history"]
@@ -523,7 +572,10 @@ def _session_list_by_title(rid, db, title_lookup: str) -> dict:
     """EXACT-title lookup (title as identity), window-free on purpose (a busy profile's windowed listing can
     push the row out). Hidden rows resolve (canonical chats are born hidden); archived / deny-listed do not;
     lineages resolve to the live tip (``resolved_id``)."""
+    strict_shared = shared_runtime_enabled()
     row = db.get_session_by_title(title_lookup)
+    if strict_shared and row and not _shared_record_owner_matches(current_transport(), row, "user_id"):
+        return _ok(rid, {"sessions": []})
     if row and row.get("archived"):
         from tools.bot_mode_probe import BOT_CHAT_TITLE
         # A Bot Chat archived by the ws-orphan reaper / agent_close is an accident (the desktop would mint
@@ -543,6 +595,8 @@ def _session_list_by_title(rid, db, title_lookup: str) -> dict:
         # Real compression continuation only: the resolver's unmarked-child fallback could redirect Bot Chat.
         tip = db.get_compression_tip(row["id"]) or row["id"]
     tip_row = (db.get_session(tip) or row) if tip != row["id"] else row
+    if strict_shared and not _shared_record_owner_matches(current_transport(), tip_row, "user_id"):
+        return _ok(rid, {"sessions": []})
     return _ok(rid, {"sessions": [_session_row_summary(row, tip_row=tip_row, resolved_id=tip, db=db)]})
 
 
@@ -576,11 +630,12 @@ def _(rid, params: dict, db) -> dict:
 @method("session.most_recent")
 def _(rid, params: dict) -> dict:
     """Most recent human-facing session, skipping auto-resume-denied rows (deny-list
-    plus ``source='unknown'`` guard placeholders, #54320); errors fold into ``session_id: null``."""
+    plus ``source='unknown'`` guard placeholders, #54320); errors fold into ``session_id: null``.
+    Always establish durable ownership, even when a missing policy file defaults to ordinary mode."""
     with _profile_db(params) as db:
         try:
             # Generous over-fetch: many denied rows must not yield a false "none".
-            rows = ([row for row in _listing_rows(db, 200)
+            rows = ([row for row in _listing_rows(db, 200, require_owner=True)
                      if not _auto_resume_denied_source(row)]
                     if db is not None else [])
             for row in rows[:1]:
@@ -723,6 +778,12 @@ def _resume_live_unpersisted(ctx: _Resume, live_sid: str, live: dict) -> dict:
     """Reattach a LIVE lazy session with no state.db row yet (every fresh Bot Chat; a 404 here killed messaging
     for never-spoken bots). Attach the transport and cancel the armed orphan-reap Timer (a WS drop may have
     sentinel-parked the record) or it fires against this client."""
+    if shared_runtime_enabled():
+        matches = _resume_live_candidates(ctx)
+        if len(matches) != 1 or matches[0][0] != live_sid or matches[0][1] is not live:
+            return _err(ctx.rid, 4403, "shared runtime: session ownership is ambiguous")
+        if (owner_error := _resume_owner_error(ctx, live, "auth_user_id")) is not None:
+            return owner_error
     if ctx.owns_db:
         _release_db(ctx.db)
     with _session_resume_lock:
@@ -746,7 +807,7 @@ def _resume_live_unpersisted(ctx: _Resume, live_sid: str, live: dict) -> dict:
                  "profile_name": profile_name_for_home(live.get("profile_home")) or _response_profile_name(ctx.profile)}}, live))
 
 
-def _resume_adopt_stranded(ctx: _Resume) -> None:
+def _resume_adopt_stranded(ctx: _Resume) -> dict | None:
     """Adopt a lineage stranded in the DEFAULT store (older builds ran a profile bot's turns on the focused
     tile's backend; unadopted it 4001s forever). Exact-id ONLY — bot titles collide; never a retired donor."""
     try:
@@ -761,7 +822,9 @@ def _resume_adopt_stranded(ctx: _Resume) -> None:
         default_db = _get_db()
         donor_row = default_db.get_session(ctx.target) if default_db is not None else None
         if not donor_row or donor_row.get("archived"):
-            return
+            return None
+        if (owner_error := _resume_owner_error(ctx, donor_row, "user_id")) is not None:
+            return owner_error
         adoption = ctx.db.adopt_session_lineage_from(default_db, donor_row["id"])
         if adoption.get("adopted"):
             logger.info("adopted stranded session %s (lineage of %s segment(s)) from default store into profile %s",
@@ -789,11 +852,14 @@ def _resume_materialize_minted(ctx: _Resume) -> None:
     not clobbered (only its NULL model/source columns would fill in).
     """
     try:
+        owner_kwargs = ({"user_id": _transport_auth_user_id(current_transport())}
+                        if shared_runtime_enabled() else {})
         ctx.db.create_session(
             ctx.target,
             source=_resolve_session_source(_str_param(ctx.params, "source") or None),
             model=_resolve_model(),
             profile_name=profile_name_for_home(ctx.profile_home) or _response_profile_name(ctx.profile),
+            **owner_kwargs,
         )
         ctx.found = ctx.db.get_session(ctx.target)
         logger.info(
@@ -804,37 +870,82 @@ def _resume_materialize_minted(ctx: _Resume) -> None:
         logger.warning("failed to materialize session row for %s", ctx.target, exc_info=True)
 
 
+def _resume_owner_error(ctx: _Resume, record: dict, owner_field: str) -> dict | None:
+    """Strict shared-mode metadata check; never infer session ownership from RPC params or profile."""
+    if shared_runtime_enabled() and not _shared_record_owner_matches(current_transport(), record, owner_field):
+        return _err(ctx.rid, 4403, "shared runtime: session ownership could not be verified")
+    return None
+
+
+def _resume_live_candidates(ctx: _Resume) -> list[tuple[str, dict]]:
+    """All live records for this exact (profile, durable key/title) tuple, for fail-closed reuse."""
+    want_profile = str(ctx.profile_home) if ctx.profile_home is not None else None
+    with _sessions_lock:
+        items = list(_sessions.items())
+    matches = []
+    for sid, session in items:
+        if not isinstance(session, dict) or session.get("_finalized"):
+            continue
+        if (session.get("profile_home") or None) != want_profile:
+            continue
+        key = str(getattr(session.get("agent"), "session_id", None) or session.get("session_key") or sid or "")
+        if key == ctx.target or str(session.get("pending_title") or "") == ctx.target:
+            matches.append((sid, session))
+    return matches
+
+
 def _resume_locate(ctx: _Resume) -> dict | None:
     """Resolve ``ctx.target`` to a stored row (``ctx.found``); a dict is an early response."""
     ctx.found = ctx.db.get_session(ctx.target)
     if ctx.found:
-        return None
+        return _resume_owner_error(ctx, ctx.found, "user_id")
     ctx.found = ctx.db.get_session_by_title(ctx.target)
     if ctx.found:
+        if (owner_error := _resume_owner_error(ctx, ctx.found, "user_id")) is not None:
+            return owner_error
         ctx.target = ctx.found["id"]
         return None
     if ctx.lazy and _child_run_active(ctx.target, ctx.profile_home):
+        if shared_runtime_enabled():
+            matches = _resume_live_candidates(ctx)
+            if len(matches) != 1:
+                return _err(ctx.rid, 4403, "shared runtime: session ownership could not be verified")
+            if (owner_error := _resume_owner_error(ctx, matches[0][1], "auth_user_id")) is not None:
+                return owner_error
         # Fresh subagent watch window: `subagent.start` relays BEFORE the child's first DB flush. Proceed lazily
         # with empty history — the live mirror streams the turn and the row exists by upgrade time.
         ctx.found = {}
         return None
-    live_sid = _find_live_unpersisted(ctx.target, ctx.profile_home)
-    if (live := _sessions.get(live_sid) if live_sid else None) is not None:
-        return _resume_live_unpersisted(ctx, live_sid, live)
+    if shared_runtime_enabled():
+        matches = _resume_live_candidates(ctx)
+        if len(matches) > 1:
+            return _err(ctx.rid, 4403, "shared runtime: session ownership is ambiguous")
+        if matches:
+            live_sid, live = matches[0]
+            if (owner_error := _resume_owner_error(ctx, live, "auth_user_id")) is not None:
+                return owner_error
+            return _resume_live_unpersisted(ctx, live_sid, live)
+    else:
+        live_sid = _find_live_unpersisted(ctx.target, ctx.profile_home)
+        if (live := _sessions.get(live_sid) if live_sid else None) is not None:
+            return _resume_live_unpersisted(ctx, live_sid, live)
     if ctx.owns_db:
-        _resume_adopt_stranded(ctx)
+        if (resp := _resume_adopt_stranded(ctx)) is not None:
+            return resp
+        if ctx.found and (owner_error := _resume_owner_error(ctx, ctx.found, "user_id")) is not None:
+            return owner_error
     if not ctx.found and not ctx.lazy and _is_server_minted_key(ctx.target) \
             and not _any_live_session_claims_key(ctx.target):
         _resume_materialize_minted(ctx)
+        if ctx.found and (owner_error := _resume_owner_error(ctx, ctx.found, "user_id")) is not None:
+            return owner_error
     return None if ctx.found else _err(ctx.rid, 4007, "session not found")
 
 
-def _resume_follow_tip(ctx: _Resume) -> None:
-    """Rebind a rotated-out parent id to its compression tip (resuming the original reloads the parent
-    transcript and loses the post-compression reply). Skipped for lazy watch windows (exact child); Bot Chat
-    follows proven compression edges only."""
+def _resume_follow_tip(ctx: _Resume) -> dict | None:
+    """Rebind a rotated-out parent id to its compression tip after checking the durable owner at both ends."""
     if not ctx.found or ctx.lazy:
-        return
+        return None
     tip = ctx.target
     with contextlib.suppress(Exception):
         from tools.bot_mode_probe import BOT_CHAT_TITLE
@@ -843,8 +954,12 @@ def _resume_follow_tip(ctx: _Resume) -> None:
         else:
             tip = ctx.db.resolve_resume_session_id(ctx.target)
     if tip and tip != ctx.target:
+        tip_row = ctx.db.get_session(tip) or ctx.found
+        if (owner_error := _resume_owner_error(ctx, tip_row, "user_id")) is not None:
+            return owner_error
         ctx.target = tip
-        ctx.found = ctx.db.get_session(tip) or ctx.found
+        ctx.found = tip_row
+    return None
 
 
 def _resume_guard(ctx: _Resume) -> dict | None:
@@ -884,6 +999,12 @@ def _resume_reuse_live(ctx: _Resume, sid: str, session: dict) -> dict:
 
 def _resume_reuse_live_locked(ctx: _Resume, sid: str, session: dict) -> dict:
     """Reuse with _session_resume_lock already held (including the eager double-check)."""
+    if shared_runtime_enabled():
+        matches = _resume_live_candidates(ctx)
+        if len(matches) != 1 or matches[0][0] != sid or matches[0][1] is not session:
+            return _err(ctx.rid, 4403, "shared runtime: session ownership is ambiguous")
+        if (owner_error := _resume_owner_error(ctx, session, "auth_user_id")) is not None:
+            return owner_error
     if (refusal := _reattach_refusal(ctx.rid, sid, session)) is not None:
         return refusal
     _cancel_ws_orphan_reap(sid)  # unconditionally: the fast path must never race the reap Timer
@@ -1067,13 +1188,25 @@ def _(rid, params: dict) -> dict:
             return _db_unavailable_error(rid, code=5000)
         if (resp := _resume_locate(ctx)) is not None:
             return resp
-        _resume_follow_tip(ctx)
+        if (resp := _resume_follow_tip(ctx)) is not None:
+            return resp
+        live = None
+        if shared_runtime_enabled():
+            live_matches = _resume_live_candidates(ctx)
+            if len(live_matches) > 1:
+                return _err(rid, 4403, "shared runtime: session ownership is ambiguous")
+            if live_matches:
+                live = live_matches[0]
+                if (owner_error := _resume_owner_error(ctx, live[1], "auth_user_id")) is not None:
+                    return owner_error
         if (resp := _resume_guard(ctx)) is not None:
             return resp
         ctx.profile_resume_cwd = (_resumable_stored_cwd(_str_param(ctx.found, "cwd"), ctx.profile_home)
                                   or _profile_workspace_cwd(ctx.profile_home))
-        with _session_resume_lock:  # fast path: reuse a session live IN THIS PROFILE, never another's
-            live = _find_live_session_by_key(ctx.target, ctx.profile_home)
+        # Fast path: reuse a session live IN THIS PROFILE (never another profile's runtime).
+        if not shared_runtime_enabled():
+            with _session_resume_lock:
+                live = _find_live_session_by_key(ctx.target, ctx.profile_home)
         if live is not None:
             return _resume_reuse_live(ctx, *live)
         from hermes_state import SessionDB
@@ -1155,6 +1288,10 @@ def _(rid, params: dict) -> dict:
     snapshot, err = _snapshot_sessions(rid)
     if err:
         return err
+    if shared_runtime_enabled():
+        caller = current_transport()
+        snapshot = [(sid, session) for sid, session in snapshot
+                    if _shared_record_owner_matches(caller, session, "auth_user_id")]
     current = str(params.get("current_session_id") or "")
     # ``_finalized`` sessions linger until the reaper pops them (they inflated the footer). Do NOT filter on
     # the WS-detached sentinel: detached is attachable until grace-reap, and ``hermes --tui`` rides stdio.

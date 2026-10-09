@@ -216,9 +216,23 @@ def _build_child_agent(
     routing_cfg: Optional[dict[str, Any]] = None,
     # Legacy; accepted for wire compat but ignored (capability is depth-derived).
     role: str = "leaf",
+    config_snapshot: Optional[Dict[str, Any]] = None,
 ):
     """Build (don't run) a child AIAgent on the main thread. override_* (from delegation config) replace parent
     inheritance so children can run on a different provider:model pair."""
+    from agent.session_orchestration import require_spawn_policy, worker_config
+    session_policy = require_spawn_policy(parent_agent)
+    if session_policy is not None:
+        # This is the shared boundary for model tools, public lifecycle and direct
+        # construction. Caller/global credential bundles cannot override a choice.
+        config_snapshot = worker_config(config_snapshot if config_snapshot is not None else _load_config(), session_policy)
+        routing_cfg = config_snapshot
+        creds = _resolve_delegation_credentials(routing_cfg, parent_agent)
+        model = session_policy["worker_model"]
+        override_provider, override_base_url = creds["provider"], creds["base_url"]
+        override_api_key, override_api_mode = creds["api_key"], creds["api_mode"]
+        override_request_overrides = creds.get("request_overrides") or {}
+        override_acp_command, override_acp_args = creds.get("command"), creds.get("args")
     import uuid as _uuid
     from run_agent import AIAgent
     from agent.delegation_context import delegated_child_context
@@ -233,10 +247,9 @@ def _build_child_agent(
     subagent_id = f"sa-{task_index}-{_uuid.uuid4().hex[:8]}"
     parent_subagent_id = getattr(parent_agent, "_subagent_id", None)
 
-    # General delegation behavior (reasoning, compression, capabilities) stays
-    # global. Only fallback policy follows the owner of a per-call route such
-    # as auxiliary.review.
-    delegation_cfg = _load_config()
+    # Session choices carry a frozen route/reasoning snapshot. Legacy calls
+    # retain global delegation behavior; auxiliary routes own fallback policy.
+    delegation_cfg = config_snapshot if config_snapshot is not None else _load_config()
     child_toolsets, child_disabled_toolsets = _resolve_child_toolsets(parent_agent, toolsets, effective_role)
     child_prompt = _build_child_system_prompt(
         goal, context, workspace_path=_resolve_workspace_hint(parent_agent), role=effective_role,
@@ -313,6 +326,10 @@ def _build_child_agent(
     # parent delete orphans them (mirrors /branch's ``_branched_from``).
     if parent_sid and getattr(child, "_session_init_model_config", None) is not None:
         child._session_init_model_config["_delegate_from"] = parent_sid
+    if config_snapshot is not None and getattr(child, "_session_init_model_config", None) is not None:
+        # Nested workers retain the originating route rather than re-reading the
+        # profile delegation pin. The native lazy session insert persists it.
+        child._session_init_model_config["_orchestration"] = dict(config_snapshot["_orchestration"])
     # Shared pool lets children rotate credentials on rate limits.
     child_pool = _resolve_child_credential_pool(
         rt["provider"], parent_agent, rt["base_url"], effective_requested_provider=rt.get("requested_provider"),
@@ -404,6 +421,7 @@ def _build_children(
     task_list: list[dict[str, Any]], task_schemas: list[Optional[dict[str, Any]]], creds: dict[str, Any], *,
     top_role: str, max_iterations: int, parent_agent, routing_cfg: dict[str, Any],
     live_deleg_id: Optional[str], live_writers: list, task_images: Optional[list[Optional[list[str]]]] = None,
+    config_snapshot: Optional[dict[str, Any]] = None,
 ) -> tuple[list[tuple], Optional[str]]:
     """Build every child on the main thread (construction is not thread-safe);
     ``(children, None)`` or ``([], error)`` on an explicit-pin preflight failure."""
@@ -417,6 +435,8 @@ def _build_children(
         "override_acp_args": creds.get("args"),
         "routing_cfg": routing_cfg,
     }
+    if config_snapshot is not None:
+        overrides["config_snapshot"] = config_snapshot
     children = []
     for i, t in enumerate(task_list):
         _task_schema = task_schemas[i] if i < len(task_schemas) else None
@@ -495,6 +515,12 @@ def delegate_task(
     if normalized_action and normalized_action != "spawn":
         return tool_error(f"Unknown action '{action}'. Use spawn (default), list, steer, or stop.")
 
+    from agent.session_orchestration import require_spawn_policy
+    try:
+        session_policy = require_spawn_policy(parent_agent)
+    except ValueError as exc:
+        return tool_error(str(exc))
+
     # Operator kill switch (TUI / delegation.pause RPC): blocks NEW spawns only.
     if is_spawn_paused():
         return tool_error(
@@ -529,8 +555,17 @@ def delegate_task(
     # a per-call routing owner shaped like the delegation config section. Keep
     # the route and its fallback policy together through child construction.
     routing_cfg = credentials_cfg if credentials_cfg is not None else cfg
+    config_snapshot = None
+    if session_policy is not None:
+        from agent.session_orchestration import worker_config
+        config_snapshot = worker_config(cfg, session_policy)
+        routing_cfg = config_snapshot
     try:
-        creds = _resolve_delegation_credentials(routing_cfg, parent_agent)
+        # Session routes resolve only at the shared construction boundary; these
+        # placeholders identify the batch without trusting caller credentials.
+        creds = (dict(model=session_policy["worker_model"], provider=session_policy["worker_provider"],
+                      base_url=None, api_key=None, api_mode=None) if session_policy is not None
+                 else _resolve_delegation_credentials(routing_cfg, parent_agent))
     except ValueError as exc:
         # Explicit-pin preflight failures (e.g. pinned delegation.command missing from PATH) refuse the
         # spawn loudly (#80450).
@@ -573,6 +608,7 @@ def delegate_task(
     children, err = _build_children(
         task_list, task_schemas, creds, top_role=top_role, max_iterations=default_max_iter, parent_agent=parent_agent,
         routing_cfg=routing_cfg, live_deleg_id=live_deleg_id, live_writers=live_writers, task_images=task_images,
+        config_snapshot=config_snapshot,
     )
     if err:
         return tool_error(err)

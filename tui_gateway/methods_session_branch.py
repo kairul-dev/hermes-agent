@@ -73,16 +73,80 @@ def _branch_source_history(db, session: dict, old_key: str) -> list:
     return history or _visible_branch_history(in_memory_history)
 
 
+def _branch_retry_parent_key(rid, session: dict):
+    """Compression rotates stored keys; forks retain independent retry namespaces."""
+    if (cached := session.get("_branch_retry_parent_key")) is not None:
+        if not isinstance(cached, str) or not cached:
+            return None, _err(rid, 4403, "session retry parent lineage could not be verified")
+        return cached, None
+    key = session.get("session_key")
+    if not isinstance(key, str) or not key:
+        return None, _err(rid, 4403, "session retry parent lineage could not be verified")
+    try:
+        with _session_db(session) as db:
+            if db is None:
+                return None, _db_unavailable_error(rid, code=5008)
+            is_continuation = getattr(db, "_is_compression_child_row", None)
+            if callable(is_continuation):
+                # Walk ancestors only: a closed older sibling must not change
+                # the root of the live continuation selected by resume.
+                row = db.get_session(key)
+                seen = {key}
+                while row is not None:
+                    if not isinstance(row, dict):
+                        return None, _err(rid, 4403, "session retry parent lineage could not be verified")
+                    if (_shared_runtime_policy_state() is not False
+                            and not _shared_record_owner_matches(current_transport(), row, "user_id")):
+                        return None, _err(rid, 4403, "shared runtime: session retry parent ownership could not be verified")
+                    if not is_continuation(row):
+                        break
+                    parent = row.get("parent_session_id")
+                    if not isinstance(parent, str) or not parent or parent in seen or len(seen) >= 4096:
+                        return None, _err(rid, 4403, "session retry parent lineage could not be verified")
+                    row = db.get_session(parent)
+                    if row is None:
+                        return None, _err(rid, 4403, "session retry parent lineage could not be verified")
+                    seen.add(parent)
+                    key = parent
+    except Exception:
+        logger.debug("branch retry lineage read failed", exc_info=True)
+        return None, _err(rid, 4403, "session retry parent lineage could not be verified")
+    session["_branch_retry_parent_key"] = key
+    return key, None
+
+
 def _branch_live(rid, params: dict, session: dict, *, omit_messages: bool = False) -> dict:
+    """Keyed branches publish once even when two clients retry concurrently.
+
+    The serialization is explicit here rather than a decorator from ``methods_session``: a decorator
+    closure over another split module's function would not be rebound onto server globals.
+    """
+    with (_session_idempotency_lock if _str_param(params, "idempotency_key") else contextlib.nullcontext()):
+        return _branch_live_serialized(rid, params, session, omit_messages=omit_messages)
+
+
+def _branch_live_serialized(rid, params: dict, session: dict, *, omit_messages: bool = False) -> dict:
     # Idempotency (#65410, same registry as session.create): a client retrying a
     # branch whose first response was lost gets the SAME child, not a duplicate.
-    idem_key = _str_param(params, "idempotency_key") or None
+    if _shared_runtime_policy_state() is not False:
+        if (owner_error := _session_retry_owner_error(rid, session)) is not None:
+            return owner_error
+    parent_key = session.get("session_key")
+    if _str_param(params, "idempotency_key"):
+        parent_key, parent_error = _branch_retry_parent_key(rid, session)
+        if parent_error is not None:
+            return parent_error
+    idem_key, retry_error = _session_retry_key(rid, params, "branch", session.get("profile_home"), parent_key)
+    if retry_error is not None:
+        return retry_error
     if idem_key is not None:
         with _sessions_lock:
             now_gc = time.time()
             existing_sid, ts = _idempotency_keys.get(idem_key, (None, 0.0))
             if existing_sid is not None and existing_sid in _sessions:
                 if now_gc - ts <= _IDEMPOTENCY_KEY_TTL:
+                    if (owner_error := _session_retry_owner_error(rid, _sessions[existing_sid])) is not None:
+                        return owner_error
                     # Refresh the TTL so back-to-back retries don't age out mid-flight.
                     _idempotency_keys[idem_key] = (existing_sid, now_gc)
                     return _ok(rid, _branch_idempotent_hit(existing_sid, _sessions[existing_sid], omit_messages))

@@ -366,6 +366,9 @@ async def handle_ws(ws: Any, *, auth_identity: dict | None = None, subprotocol: 
             "jsonrpc": "2.0", "method": "event",
             "params": {"type": "gateway.ready", "payload": {
                 "skin": skin_payload, "change_events": True, "heartbeat": True, "replay_epoch": replay_epoch(),
+                # shared_runtime advertises the adapter + exact epoch only when the server-side
+                # config gate is on (see tui_gateway/shared_runtime.py).
+                **server._shared_gateway_ready_extra(),
             }},
         })
         if ready_ok:

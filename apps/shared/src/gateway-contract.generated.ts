@@ -1908,6 +1908,35 @@ export interface ClientCapabilitiesResult {
   server_requests: string[]
   declines_not_shown?: boolean
 }
+export interface OrchestrationGetParams {
+  session_id: string
+}
+export interface OrchestrationResult {
+  version: 1
+  supported: true
+  scope: 'session'
+  session_id: string
+  stored_session_id: string
+  enabled: boolean
+  worker_provider: string
+  worker_model: string
+  worker_reasoning_effort: string
+}
+export interface OrchestrationSetParams {
+  session_id: string
+  enabled: boolean
+  worker_provider: string
+  worker_model: string
+  worker_reasoning_effort?: string
+}
+export interface SessionInfoGetParams {
+  session_id: string
+}
+export interface SessionInfoGetResult {
+  session_id: string
+  stored_session_id: string
+  info: Record<string, unknown>
+}
 /** ``word`` is the token under the cursor (``@`` prefix = context reference); ``cwd`` / ``session_id`` pick the directory the listing resolves against. */
 export interface CompletePathParams {
   profile?: string | null
@@ -3000,6 +3029,24 @@ export interface WakeFeedResult {
   reason?: string | null
   fed: boolean
 }
+export interface SharedRpcParams {
+  runtime_epoch: string
+  method: string
+  params: Record<string, unknown>
+}
+/** The wrapped native handler's result, verbatim — its closed shape is that method's contract. */
+export type SharedRpcResult = Record<string, unknown>
+export interface SharedAnswerParams {
+  runtime_epoch: string
+  session_id: string
+  stored_session_id: string
+  request_id: string
+  request_type: string
+  result: Record<string, unknown>
+}
+export interface SharedAnswerResult {
+  status: 'accepted' | 'already_resolved' | 'unavailable'
+}
 export interface SessionCreateParams {
   profile?: string | null
   cols?: number | null
@@ -3113,6 +3160,8 @@ export interface SessionResumeResult {
   pending_connection?: ConnectionRequestPayload | null
   todo_state?: TodoState | null
   auto_continue?: AutoContinue | null
+  session_attention?: SessionAttention | null
+  pending_requests?: PendingRequest[] | null
 }
 /** ``session_auto_continue._inflight_snapshot``: the live (or retained failed) turn a reconnecting client rebuilds its bubbles from. */
 export interface InflightTurn {
@@ -3156,6 +3205,22 @@ export interface AutoContinue {
   attempt: number
   interrupted_at: number
 }
+/** ``tui_gateway/session_attention.py`` — one canonical projection per live session. Also ships as a field of the live projections (active list / activate / resume). */
+export interface SessionAttention {
+  schema_version: number
+  status: string
+  substatus?: string
+  request_types?: string[]
+  revision: number
+  epoch: string
+  updated_at: number
+  turn_started_at?: number | null
+}
+/** One unresolved native wait's identity: opaque ``request_id`` + method. Never prompt text. */
+export interface PendingRequest {
+  request_id: string
+  type: string
+}
 export interface SessionActivateParams {
   session_id: string
   profile?: string | null
@@ -3183,6 +3248,8 @@ export interface SessionActivateResult {
   pending_connection?: ConnectionRequestPayload | null
   todo_state?: TodoState | null
   auto_continue?: AutoContinue | null
+  session_attention?: SessionAttention | null
+  pending_requests?: PendingRequest[] | null
 }
 export interface SessionListParams {
   profile?: string | null
@@ -3233,6 +3300,8 @@ export interface SessionActiveItem {
   started_at: number
   status: LiveSessionStatus
   title: string
+  session_attention?: SessionAttention | null
+  pending_requests?: PendingRequest[] | null
 }
 export type LiveSessionStatus = 'idle' | 'starting' | 'waiting' | 'working' | 'streaming' | 'resuming'
 /** ``session_id`` is the STORED id. */
@@ -4580,7 +4649,20 @@ export interface RequestCancelPayload {
   id: string
   method: string
   reason: string
+  runtime_epoch?: string | null
+  session_id?: string | null
+  stored_session_id?: string | null
 }
+/** The accepted settlement projection: the exact native request identity plus the exact advertised runtime epoch — never an answer, secret or approval value (``outcome`` distinguishes a real answer from the unanimous window-owned NOT_SHOWN decline). */
+export interface RequestResolvedPayload {
+  id: string
+  method: string
+  outcome: RequestResolvedOutcome
+  runtime_epoch: string
+  session_id: string
+  stored_session_id: string
+}
+export type RequestResolvedOutcome = 'answered' | 'not_shown'
 export interface DisplayStatusPayload {
   profile: string
   supported: boolean
@@ -4996,6 +5078,20 @@ export interface PetHatchProgressPayload {
 }
 /** ``change_watcher._CHANGE_WATCHES`` payload fn — ``{}`` for every watch except pet.changed. */
 export type ChangeSignalPayload = Record<string, unknown>
+/** Session-attention event identity is additive; native active-list/resume snapshots stay unchanged. */
+export interface SessionAttentionEventPayload {
+  schema_version: number
+  status: string
+  substatus?: string
+  request_types?: string[]
+  revision: number
+  epoch: string
+  updated_at: number
+  turn_started_at?: number | null
+  runtime_epoch: string
+  session_id: string
+  stored_session_id: string
+}
 export type ConnectorErrorReason = 'INVALID_PARAMS' | 'NOT_OWNER' | 'UNSUPPORTED_RUNTIME' | 'CONNECTOR_REQUEST_FAILED' | 'INVALID_CONNECTOR_RESPONSE' | 'UNKNOWN_TARGET' | 'LINK_STILL_VALID' | 'REISSUE_REFUSED' | 'UNKNOWN_OPERATION' | 'INVALID_ANSWER' | 'NEEDS_NOUS_AUTH' | 'CONNECTOR_NOT_FOUND' | 'TOOLS_UNAVAILABLE' | 'CONNECTORS_UNAVAILABLE' | 'CATALOG_UNAVAILABLE' | 'ACCOUNTS_UNAVAILABLE' | 'CONNECTION_NOT_FOUND' | 'POLICY_UNAVAILABLE' | 'POLICY_CONFLICT' | 'FORBIDDEN_SCOPE' | 'ORG_REQUIRED' | 'ORG_ACCESS_DENIED' | 'INVALID_POLICY'
 
 // ── Client→server methods ──
@@ -5228,6 +5324,8 @@ export interface RpcMethods {
   /** Restore the setup profile to its created state in place (soul, memories, skills, sessions). */
   'onboarding.reset_setup_profile': { params: Params; result: OnboardingResetSetupProfileResult }
   'onboarding.state': { params: Params; result: OnboardingStateResult }
+  'orchestration.get': { params: OrchestrationGetParams; result: OrchestrationResult }
+  'orchestration.set': { params: OrchestrationSetParams; result: OrchestrationResult }
   /** Spill a large paste to a file and hand back the inline placeholder. */
   'paste.collapse': { params: PasteCollapseParams; result: PasteCollapseResult }
   /** Render a PDF's pages to PNG and queue them as images for the next turn. */
@@ -5378,6 +5476,7 @@ export interface RpcMethods {
   'session.foreign.preview': { params: SessionForeignIdParams; result: SessionForeignPreviewResult }
   /** The durable display transcript (ancestors included, row ids attached). */
   'session.history': { params: SessionHistoryParams; result: SessionHistoryResult }
+  'session.info.get': { params: SessionInfoGetParams; result: SessionInfoGetResult }
   /** Stop the running turn (and streaming TTS); retires the crash-recovery marker. */
   'session.interrupt': { params: SessionInterruptParams; result: SessionInterruptResult }
   /** Human-facing stored sessions, most recent first (sub-agent / kanban sources denied). */
@@ -5392,6 +5491,10 @@ export interface RpcMethods {
   'session.save': { params: SessionSaveParams; result: SessionSaveResult }
   /** Set/clear hidden (out of the default list, still resumable by its owner) on a session + lineage. */
   'session.set_hidden': { params: SessionSetHiddenParams; result: SessionSetHiddenResult }
+  /** Answer one open native server→client request by its exact identity, after validation. */
+  'session.shared.answer': { params: SharedAnswerParams; result: SharedAnswerResult }
+  /** Invoke one allowlisted native handler under the exact advertised runtime epoch. */
+  'session.shared.rpc': { params: SharedRpcParams; result: SharedRpcResult }
   /** Run a start_chat request again from the session that made it (the handoff card's Retry). */
   'session.start_chat': { params: SessionStartChatParams; result: SessionStartChatResult }
   /** Rendered /status text for the session. */
@@ -5629,6 +5732,8 @@ export const RPC_METHODS = [
   'onboarding.record_failed_start',
   'onboarding.reset_setup_profile',
   'onboarding.state',
+  'orchestration.get',
+  'orchestration.set',
   'paste.collapse',
   'pdf.attach',
   'pet.cancel',
@@ -5704,6 +5809,7 @@ export const RPC_METHODS = [
   'session.foreign.list',
   'session.foreign.preview',
   'session.history',
+  'session.info.get',
   'session.interrupt',
   'session.list',
   'session.most_recent',
@@ -5711,6 +5817,8 @@ export const RPC_METHODS = [
   'session.resume',
   'session.save',
   'session.set_hidden',
+  'session.shared.answer',
+  'session.shared.rpc',
   'session.start_chat',
   'session.status',
   'session.steer',
@@ -5916,8 +6024,12 @@ export interface BackendGatewayEventMap {
   'reasoning.delta': StreamDeltaPayload
   /** The backend withdrew an open server→client request; clear the matching card only. */
   'request.cancel': RequestCancelPayload
+  /** An open server→client request was settled; clear the matching card and update attention once. */
+  'request.resolved': RequestResolvedPayload
   /** Background review of the last turn finished. */
   'review.summary': ReviewSummaryPayload
+  /** A session's canonical attention state moved, fenced by runtime/live/durable identity. */
+  'session.attention': SessionAttentionEventPayload
   /** Persisted goal / loop / heartbeat state changed. */
   'session.control.update': SessionControlUpdatePayload
   /** Live session settings snapshot (``server._session_info``); also the ``info`` of create/resume/activate. */
@@ -6026,7 +6138,9 @@ export const GATEWAY_EVENT_TYPES = [
   'reasoning.available',
   'reasoning.delta',
   'request.cancel',
+  'request.resolved',
   'review.summary',
+  'session.attention',
   'session.control.update',
   'session.info',
   'session.reclaimed',

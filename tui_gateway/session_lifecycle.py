@@ -936,6 +936,11 @@ def _schedule_ws_orphan_reap(
                 return
             if _session_has_active_delegations(sid, current):
                 reschedule_delay = _WS_ORPHAN_REAP_GRACE_S
+            elif _shared_backend_owned_work_or_wait(sid, current):
+                # Shared mode: a clientless session with backend-owned work or a pending native wait
+                # survives the loss of every transport. The turn's own settle / the wait's own
+                # deadline ends the exemption; explicit stops and idle cleanup keep their paths.
+                reschedule_delay = _WS_ORPHAN_REAP_GRACE_S
             elif not current.get("running"):
                 session = _pop_session_by_id(sid)
             elif not current.get("_client_gone_interrupt_requested") and _ws_orphan_turn_activity_is_fresh(current):

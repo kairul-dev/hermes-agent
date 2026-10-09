@@ -1215,6 +1215,13 @@ def _run_prompt_submit(
                     if not st.error_retained:
                         _clear_inflight_turn(session)
                     _release_hosted_room_turn_slot(session)
+                # The terminal frame fired while ``running`` was still held; commit and announce the
+                # settled attention state now that the turn is released (one reconcile, no client read).
+                # Shared mode binds this optional observer onto server.py's globals; direct/rebound
+                # ordinary callers may not provide it, and must still finish core turn cleanup.
+                attention_touch = globals().get("_session_attention_touch")
+                if attention_touch is not None:
+                    attention_touch(sid)
                 # Closing bookend of "tui prompt accepted" — exactly one per accepted prompt.
                 # agent.session_id is re-read because compression may have rotated it (an
                 # accepted/finished pair whose id changed IS a rotation trace).

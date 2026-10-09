@@ -217,6 +217,14 @@ class SessionCompressionMixin:
         """INSERT the compression child's ``sessions`` row copied from *parent*. Same contract as
         _insert_session_row's compression-fork backfill: the child stays on the parent's profile and keeps
         gateway routing/origin columns; no owner on either side -> this store's profile."""
+        from agent.session_orchestration import policy_from_model_config
+        # Publication owns the policy snapshot: summary/model_config preparation
+        # may predate an orchestration RPC. Read the parent in this transaction.
+        policy = policy_from_model_config(parent["model_config"])
+        model_config = dict(model_config or {})
+        model_config.pop("_orchestration", None)
+        if policy is not None:
+            model_config["_orchestration"] = policy
         system_prompt_hash = self._store_system_prompt(conn, system_prompt)
         # The child continues the parent's tools[] pin (the compaction refresh re-pinned it just
         # before publish), or its first hop to another surface re-derives the array.
@@ -283,7 +291,7 @@ class SessionCompressionMixin:
                 """SELECT ended_at, end_reason, cwd, git_branch, git_repo_root,
                           user_id, session_key, chat_id, chat_type,
                           thread_id, display_name, origin_json, profile_name, tool_names,
-                          archived, auto_archived, pinned
+                          archived, auto_archived, pinned, model_config
                    FROM sessions WHERE id = ?""",
                 (parent_session_id,),
             ).fetchone()

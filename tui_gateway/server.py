@@ -110,7 +110,8 @@ _cfg_path = None
 # Idempotency registry for session.create: maps client-supplied key → sid so a
 # retried create (e.g. response lost in transit) returns the same session
 # instead of spawning a duplicate child. Entries expire with the session.
-_idempotency_keys: dict[str, tuple[str, float]] = {}
+_idempotency_keys: dict[tuple, tuple[str, float]] = {}
+_session_idempotency_lock = threading.RLock()  # serialize keyed lookup/build/publication, never session teardown
 _IDEMPOTENCY_KEY_TTL = 300.0  # 5 min: longer than any realistic retry window
 _session_resume_lock = threading.Lock()
 _SLASH_WORKER_TIMEOUT_S = max(5.0, env_float("HERMES_TUI_SLASH_TIMEOUT_S", 45.0))
@@ -195,6 +196,7 @@ _LONG_HANDLERS = frozenset({
     "onboarding.ensure_setup_profile", "onboarding.ensure_setup_session", "onboarding.reset_setup_profile",
     "session.start_chat",
     "command.dispatch",  # /goal draft invokes the auxiliary model; never block the RPC reader
+    "session.shared.rpc",  # wraps pooled native handlers (session.resume, prompt.submit, ...)
     "shared_metrics.set",  # consent reconcile waits on the metrics store's write lock
 })
 
@@ -685,8 +687,40 @@ def write_json(obj: dict) -> bool:
     Every event frame gets a per-session monotonic ``seq`` + replay-ring entry so ``session.events.since`` can resume."""
     from tui_gateway.event_replay import _stamp_event
     from tui_gateway.hosted_room_member_activity import project_room_member_activity
-    _stamp_event(obj)
     params = obj.get("params")
+    sid = params.get("session_id", "") if isinstance(params, dict) else ""
+    event_type = params.get("type") if isinstance(params, dict) else None
+    if obj.get("method") == "event" and event_type in {"session.attention", "request.resolved", "request.cancel"}:
+        policy = _shared_runtime_policy_state()
+        if policy is not False:
+            # These strict-mode session projections require an exact, server-derived identity tuple.
+            # If policy is unreadable, the target vanished, or its durable identity changed, do not
+            # stamp/replay or fall back to a context-bound transport owned by another session.
+            payload = params.get("payload") if isinstance(params, dict) else None
+            epoch = shared_runtime_epoch() if policy is True else None
+            if (not isinstance(payload, dict) or not epoch
+                    or payload.get("runtime_epoch") != epoch
+                    or payload.get("session_id") != sid
+                    or not isinstance(payload.get("stored_session_id"), str)
+                    or not payload["stored_session_id"]):
+                return False
+            with _sessions_lock:
+                session = _sessions.get(sid) if isinstance(sid, str) else None
+                if (not isinstance(session, dict) or session.get("_finalized")
+                        or "auth_user_id" not in session):
+                    return False
+                owner = session.get("auth_user_id")
+                if owner is not None and (not isinstance(owner, str) or not owner or owner.strip() != owner):
+                    return False
+                stored_id = str(session.get("session_key")
+                                or getattr(session.get("agent"), "session_id", None) or "")
+                transport = session.get("transport")
+                if stored_id != payload["stored_session_id"] or transport is None:
+                    return False
+            _stamp_event(obj)
+            project_room_member_activity(obj, _sessions)
+            return transport.write(obj)
+    _stamp_event(obj)
     if obj.get("method") == "event" or (isinstance(obj.get("id"), str) and "method" in obj):
         # Event notifications AND server→client requests carry ``params.session_id``; both route to the
         # owning session's transport. A room member's hidden session has no transport: its frames would
@@ -706,9 +740,15 @@ def _event_frame(event: str, sid: str, payload: dict | None = None) -> dict:
 
 def _emit(event: str, sid: str, payload: dict | None = None) -> bool:
     from agent.notification_presentation import event_presentation_muted
-    if event_presentation_muted(event, sid):
-        return False
-    return write_json(_event_frame(event, sid, payload))
+    written = False if event_presentation_muted(event, sid) else write_json(_event_frame(event, sid, payload))
+    if event == "message.start" or event == "message.complete":
+        # Terminal turn frames drive the attention state machine (turn start / last outcome) after
+        # the frame itself is on the wire; metadata-only, and a failure can never disturb the emit.
+        try:
+            _session_attention_note_event(event, sid, payload)
+        except Exception:
+            logger.debug("session attention note failed for %s", event, exc_info=True)
+    return written
 
 
 from tui_gateway import server_requests as _server_requests
@@ -716,6 +756,51 @@ from tui_gateway import server_requests as _server_requests
 _server_requests.bind_sinks(lambda frame: write_json(frame), lambda event, sid, payload: _emit(event, sid, payload),
                             lambda sid: _session_client_answers_requests(sid),
                             lambda sid: _session_answering_clients(sid))
+# Strict shared mode gates RESPONSE settlement (raw frames, request.answer, declines) on the
+# caller's verified owner + live membership; ordinary mode admits everything (see shared_runtime).
+_server_requests.bind_response_authorizer(
+    lambda sid, transport: _shared_response_authorized(sid, transport))
+_server_requests.bind_shared_wire(
+    lambda: shared_runtime_epoch() if shared_runtime_enabled() else None)
+
+
+def _capture_shared_request_identity(sid: str) -> tuple[dict | None, dict | None]:
+    """Capture the trusted live/durable identity tuple when the native wait enters _open."""
+    epoch = shared_runtime_epoch() if shared_runtime_enabled() else None
+    if not epoch or not isinstance(sid, str) or not sid:
+        return None, None
+    with _sessions_lock:
+        session = _sessions.get(sid)
+    if not isinstance(session, dict) or session.get("_finalized") or "auth_user_id" not in session:
+        return None, None
+    owner = session.get("auth_user_id")
+    if owner is not None and (not isinstance(owner, str) or not owner or owner.strip() != owner):
+        return None, None
+    stored_id = str(session.get("session_key") or getattr(session.get("agent"), "session_id", None) or "")
+    if not stored_id or stored_id.strip() != stored_id:
+        return None, None
+    return ({"runtime_epoch": epoch, "session_id": sid, "stored_session_id": stored_id,
+             "_owner_key": owner}, session)
+
+
+def _shared_request_identity_is_current(sid: str, identity: dict, registered_session: dict) -> bool:
+    """Do not route a captured projection after its target session disappears or is replaced."""
+    if not shared_runtime_enabled() or shared_runtime_epoch() != identity.get("runtime_epoch"):
+        return False
+    with _sessions_lock:
+        session = _sessions.get(sid)
+    if session is not registered_session or not isinstance(session, dict) or session.get("_finalized"):
+        return False
+    stored_id = str(session.get("session_key") or getattr(session.get("agent"), "session_id", None) or "")
+    return (sid == identity.get("session_id") and stored_id == identity.get("stored_session_id")
+            and "auth_user_id" in session and session.get("auth_user_id") == identity.get("_owner_key"))
+
+
+_server_requests.bind_shared_identity(
+    _capture_shared_request_identity, _shared_request_identity_is_current)
+# Request-transition observer: reconcile the session's attention state once per committed native
+# transition (register / settle / expiry / cancel / final lock), outside the request lock.
+_server_requests.add_request_observer(lambda sid, phase: _session_request_observer(sid, phase))
 
 
 # Live WS peer transports (maintained by tui_gateway.ws): the only route for session-less background
@@ -1752,18 +1837,29 @@ def _persist_live_session_runtime(session: dict | None) -> None:
         return
     agent, session_key, db = live
     try:
-        row = db.get_session(session_key) or {}
-        model_config = _runtime_model_config(agent, _parse_model_config(row.get("model_config")))
+        # Project ONLY runtime-owned keys. Merge with the latest row inside the
+        # native write transaction, never replay a stale orchestration snapshot.
+        model_config = dict.fromkeys(("model", "provider", "base_url", "api_mode", "reasoning_config", "service_tier"))
+        model_config.update(_runtime_model_config(agent))
         if isinstance(composer_profile := session.get("composer_override_profile"), dict):
             model_config["composer_override_profile"] = composer_profile
         elif "composer_override_profile" in session:
-            model_config.pop("composer_override_profile", None)
+            model_config["composer_override_profile"] = None
         if (tier_override := session.get("create_service_tier_override")) is not None:
             # agent.service_tier is None for explicit normal; without this the distinction is erased on every persist.
             model_config["service_tier"] = tier_override or "normal"
         model = str(model_config.get("model") or "").strip()
-        if hasattr(db, "update_session_meta"):
-            db.update_session_meta(session_key, json.dumps(model_config), model or None)
+        if hasattr(db, "patch_session_runtime_config"):
+            db.patch_session_runtime_config(session_key, model_config, model or None)
+        elif hasattr(db, "update_session_meta"):
+            # Compatibility for legacy stores without native atomic patch support.
+            existing = _parse_model_config((db.get_session(session_key) or {}).get("model_config"))
+            for key, value in model_config.items():
+                if value is None:
+                    existing.pop(key, None)
+                else:
+                    existing[key] = value
+            db.update_session_meta(session_key, json.dumps(existing), model or None)
         elif model and hasattr(db, "update_session_model"):
             db.update_session_model(session_key, model)
     except Exception:
@@ -1846,15 +1942,18 @@ def _append_model_switch_marker(session: dict | None, *, model: str, provider: s
     try:
         agent = session.get("agent")
         db = getattr(agent, "_session_db", None) if agent is not None else None
-        if db is None:
+        # Same stale-key hazard as the submit row: this durable pivot must land in the session the
+        # live agent writes to, or a model switch between turns on a rotated session files the notice
+        # under a parent the conversation no longer reads from (#123545).
+        target = _submit_row_target_key(session)
+        # An explicit model switch is real activity. An agent-ready fresh draft already holds a DB handle
+        # but its row is only minted on first submit, so the marker INSERT would trip the messages FK.
+        # Only the un-rotated key is materialized here; a rotated agent id names a row its rotation made.
+        if db is None or (target == session_key and db.get_session(target) is None):
             _ensure_session_db_row(session)
         with (contextlib.nullcontext(db) if db is not None else _session_db(session)) as db:
             if db is not None:
                 from agent.context_compressor import _DB_PERSISTED_MARKER
-                # Same stale-key hazard as the submit row: this durable pivot must land in the session the
-                # live agent writes to, or a model switch between turns on a rotated session files the notice
-                # under a parent the conversation no longer reads from (#123545).
-                target = _submit_row_target_key(session)
                 # The in-memory strip above keeps one marker; the durable rows need the same invariant or N
                 # switches leave N active rows that all replay on resume (#65891 kept it in memory only).
                 db.deactivate_messages_by_display_kind(target, "model_switch")
@@ -2353,20 +2452,77 @@ def _fast_tier_applies(agent, model: str, provider: str, *, route_known: bool, t
         return False
 
 
+def _session_model_info(agent, session: dict | None = None, *, strict_provider: bool = False) -> dict:
+    """Safe model/effort subset shared by the info event and the read-only getter."""
+    agent = session_runtime_view(agent)
+    sess = session or {}
+    mirror = _metadata_mirror(session)
+    # The session's own pin (a session-scoped `config.set key=reasoning`) is the
+    # authority `config.get` already answers with, and it is what the next turn
+    # runs. The live agent can lag it: a pin set while the deferred agent build
+    # was still in flight is only applied when the agent is built, so the
+    # finished agent keeps reporting the PROFILE effort. Read the pin first so
+    # session.info / session.resume / session.activate cannot contradict
+    # `config.get` — clients that trusted info (desktop, Forge) reverted the
+    # user's pick to the profile value otherwise.
+    reasoning_config = getattr(agent, "reasoning_config", None)
+    pin = (session or {}).get("create_reasoning_override")
+    if isinstance(pin, dict):
+        reasoning_config = pin
+    reasoning_effort = ""
+    if isinstance(reasoning_config, dict):
+        # Disabled must differ from unset ("" = provider default) or the desktop loses "thinking off" after turn 1.
+        reasoning_effort = "none" if reasoning_config.get("enabled") is False else str(reasoning_config.get("effort", "") or "")
+    # A switch queued mid-turn applies at next turn start (agent.model still reads the OLD model); report the
+    # pending pick so the end-of-turn settle doesn't blip the UI back first.
+    pending_switch = sess.get("pending_model_switch") or {}
+    pending_model = str(pending_switch.get("display_model") or "").strip()
+    pending_provider = str(pending_switch.get("display_provider") or "").strip()
+    provider = mirror.get("provider", getattr(agent, "provider", ""))
+    if not strict_provider and provider == "custom" and "provider" not in mirror and agent is not None:
+        # Clients reuse this identity for new chats without carrying the endpoint or key.
+        # Broadcast/resume callers need not be bound to this session's profile.
+        with _profile_build_scope(sess.get("profile_home") or _hermes_home):
+            provider = _runtime_model_config(agent).get("provider", provider)
+    model = pending_model or mirror.get("model", getattr(agent, "model", ""))
+    if strict_provider and (pending_provider or provider) == "custom":
+        # The getter must never heal an ambiguous bare provider by the first
+        # catalog/model overlap or by the profile default. Endpoint ownership is
+        # proof; a missing endpoint means the provider is explicitly unavailable.
+        from hermes_cli.runtime_provider import canonical_custom_identity
+        base_url = (pending_switch.get("base_url") if pending_provider else
+                    mirror.get("base_url") if "provider" in mirror else getattr(agent, "base_url", None))
+        with _session_projection_scope(sess):
+            identity = canonical_custom_identity(base_url=base_url, config_provider="custom") if base_url else None
+        if pending_provider:
+            pending_provider = identity or ""
+            provider = ""
+        else:
+            provider = identity or ""
+    # The level the route's entry clamp actually sends (== reasoning_effort when verbatim), so the
+    # Desktop can say "ultra sends max on this route" like `/reasoning` does instead of presenting a
+    # Hermes-internal step (#61634) as a wire level the route does not have.
+    reasoning_effort_wire = ""
+    if reasoning_effort and reasoning_effort != "none":
+        reasoning_effort_wire = str(clamp_effort(reasoning_effort, route_supported_efforts(
+            pending_provider or provider, model, getattr(agent, "api_mode", None))) or "")
+    return {"model": str(model or ""), "provider": str(pending_provider or provider or ""),
+            "reasoning_effort": reasoning_effort, "reasoning_effort_wire": reasoning_effort_wire}
+
+
 def _session_info(agent, session: dict | None = None) -> dict:
-    if session is None:
+    if session is None and agent is not None:
         session = next((c for c in _sessions.values() if c.get("agent") is agent), None)
     agent = session_runtime_view(agent)
     sess = session or {}
     mirror = _metadata_mirror(session)
     cwd = _display_session_cwd(session)
-    session_key = str(sess.get("session_key") or getattr(agent, "session_id", "") or "")
+    session_key = str(_orchestration_stored_id(sess) or getattr(agent, "session_id", "") or "")
     personality = sess.get("personality", _display_cfg().get("personality") or "")
-    reasoning_config = getattr(agent, "reasoning_config", None)
-    reasoning_effort = ""
-    if isinstance(reasoning_config, dict):
-        # Disabled must differ from unset ("" = provider default) or the desktop loses "thinking off" after turn 1.
-        reasoning_effort = "none" if reasoning_config.get("enabled") is False else str(reasoning_config.get("effort", "") or "")
+    model_info = _session_model_info(agent, session)
+    model, provider = model_info["model"], model_info["provider"]
+    reasoning_effort, reasoning_effort_wire = model_info["reasoning_effort"], model_info["reasoning_effort_wire"]
+    pending_provider = str((sess.get("pending_model_switch") or {}).get("display_provider") or "").strip()
     service_tier = getattr(agent, "service_tier", None) or mirror.get("service_tier") or ""
     # yolo ORs the same three sources check_all_command_guards() does (approvals.mode=off, the process
     # --yolo env, the per-session flag): the session flag alone would show "off" while config auto-approves.
@@ -2377,25 +2533,6 @@ def _session_info(agent, session: dict | None = None) -> dict:
         yolo = bool(_YOLO_MODE_FROZEN) or session_yolo or approval_mode == "off"
     except Exception:
         yolo, approval_mode = False, "manual"
-    # A switch queued mid-turn applies at next turn start (agent.model still reads the OLD model); report the
-    # pending pick so the end-of-turn settle doesn't blip the UI back first.
-    pending_switch = sess.get("pending_model_switch") or {}
-    pending_model = str(pending_switch.get("display_model") or "").strip()
-    pending_provider = str(pending_switch.get("display_provider") or "").strip()
-    provider = mirror.get("provider", getattr(agent, "provider", ""))
-    if provider == "custom" and "provider" not in mirror and agent is not None:
-        # Clients reuse this identity for new chats without carrying the endpoint or key.
-        # Broadcast/resume callers need not be bound to this session's profile.
-        with _profile_build_scope(sess.get("profile_home") or _hermes_home):
-            provider = _runtime_model_config(agent).get("provider", provider)
-    model = pending_model or mirror.get("model", getattr(agent, "model", ""))
-    # The level the route's entry clamp actually sends (== reasoning_effort when verbatim), so the
-    # Desktop can say "ultra sends max on this route" like `/reasoning` does instead of presenting a
-    # Hermes-internal step (#61634) as a wire level the route does not have.
-    reasoning_effort_wire = ""
-    if reasoning_effort and reasoning_effort != "none":
-        reasoning_effort_wire = str(clamp_effort(reasoning_effort, route_supported_efforts(
-            pending_provider or provider, model, getattr(agent, "api_mode", None))) or "")
     info: dict = {
         "model": model,
         "provider": pending_provider or provider,
@@ -2447,6 +2584,12 @@ def _session_info(agent, session: dict | None = None) -> dict:
         info["update_command"] = recommended_update_command()
     if live_agent and (warn := _probe_credentials(agent)):
         info["credential_warning"] = warn
+    # Additive verified planner tuple: legacy outer fields remain native chrome.
+    # If projection cannot be verified, omit it so clients refresh the getter.
+    with contextlib.suppress(Exception):
+        planner_info = _session_planner_model_info(sess, agent)
+        if str(_orchestration_stored_id(sess) or getattr(agent, "session_id", "") or "") == session_key:
+            info["planner_model_info"] = planner_info
     return info
 
 
@@ -2461,9 +2604,8 @@ def _tool_ctx(name: str, args: dict) -> str:
 
 def _emit_session_info_for_session(sid: str, session: dict) -> None:
     agent = session.get("agent")
-    if agent is not None or _metadata_mirror(session):
-        with contextlib.suppress(Exception):
-            _emit("session.info", sid, _session_info(agent, session))
+    with contextlib.suppress(Exception):
+        _emit("session.info", sid, _session_info(agent, session))
 
 
 def broadcast_session_info() -> None:
@@ -3073,7 +3215,7 @@ def _session_live_item(sid: str, session: dict, current_sid: str = "") -> dict:
     elif inflight:
         preview = " ".join(str(inflight.get("assistant") or inflight.get("user") or preview).split())[:160]
     now = time.time()
-    return {
+    row = {
         "current": sid == current_sid, "id": sid,
         "last_active": float(session.get("last_active") or session.get("created_at") or now),
         "message_count": len(history),
@@ -3081,6 +3223,12 @@ def _session_live_item(sid: str, session: dict, current_sid: str = "") -> dict:
         "session_key": key, "started_at": float(session.get("created_at") or now), "status": status,
         "title": _session_live_title(session, key),
     }
+    if shared_runtime_enabled():
+        # Canonical attention + exact pending-request identity for the sidebar/picker surfaces
+        # (shared-runtime wire surface; ordinary mode keeps its historical row shape).
+        row["session_attention"] = _session_attention_snapshot(sid, session)
+        row["pending_requests"] = _session_attention_pending_rows(sid)
+    return row
 
 
 def _session_lookup_key(session: dict, *, fallback: str = "") -> str:
@@ -3194,6 +3342,12 @@ def _live_session_payload(
                        ("pending_connection", _pending_connection_request_payload(sid))):
         if value:
             payload[key] = value
+    # Canonical attention + the exact pending-request identity (the companion contract every
+    # navigation surface reads; snapshots are authoritative for the full pending set). Part of the
+    # shared-runtime wire surface: only attached while the server-side gate is enabled.
+    if shared_runtime_enabled():
+        payload["session_attention"] = _session_attention_snapshot(sid, session)
+        payload["pending_requests"] = _session_attention_pending_rows(sid)
     return _attach_todo_state(payload, session)
 
 
@@ -3656,6 +3810,7 @@ from . import (
     methods_voice as _methods_voice, methods_browser as _methods_browser, methods_slash as _methods_slash,
     methods_complete_helpers as _methods_complete_helpers, session_auto_continue as _session_auto_continue,
     plugin_inject as _plugin_inject,
+    shared_runtime as _shared_runtime,
     rpc_dispatch as _rpc_dispatch,
     agent_callbacks as _agent_callbacks, session_history as _session_history,
     prompt_attachments as _prompt_attachments, session_notifications as _session_notifications,
@@ -3671,6 +3826,7 @@ from . import (
     methods_tools as _methods_tools, prompt_turn as _prompt_turn, billing_view as _billing_view,
     methods_projects as _methods_projects, methods_session_foreign as _methods_session_foreign,
     methods_session_control as _methods_session_control, methods_subagents as _methods_subagents,
+    methods_orchestration as _methods_orchestration, methods_session_info as _methods_session_info,
     methods_vault as _methods_vault, methods_free_tier as _methods_free_tier,
     methods_connectors as _methods_connectors, methods_connectors_account as _methods_connectors_account,
     methods_display as _methods_display, methods_display_watch as _methods_display_watch,
@@ -3685,8 +3841,8 @@ for _m in (
     _methods_browser_control, _methods_session, _methods_prompt, _methods_config,
     _methods_config_set, _methods_complete, _methods_tools, _methods_profiles, _methods_images,
     _methods_bot_relay, _prompt_turn, _billing_view, _methods_projects, _methods_session_foreign,
-    _methods_session_control, _methods_subagents, _methods_vault, _methods_free_tier, _methods_connectors,
+    _methods_session_control, _methods_subagents, _methods_orchestration, _methods_session_info, _methods_vault, _methods_free_tier, _methods_connectors,
     _methods_connectors_account, _methods_display, _methods_display_watch, _methods_onboarding,
-    _methods_i18n, _methods_shared_metrics, _methods_start_chat):
+    _methods_i18n, _methods_shared_metrics, _methods_start_chat, _shared_runtime):
     _m.register(sys.modules[__name__])
 del _m

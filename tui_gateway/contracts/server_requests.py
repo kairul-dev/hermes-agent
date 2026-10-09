@@ -261,7 +261,32 @@ class RequestCancelPayload(Payload):
     id: str
     method: str
     reason: str  # a RequestCancelReason value; callers in tools/approval may pass their own wording
+    runtime_epoch: str | None = None
+    session_id: str | None = None
+    stored_session_id: str | None = None
 
 
 event("request.cancel", RequestCancelPayload,
       doc="The backend withdrew an open server→client request; clear the matching card only.")
+
+
+class RequestResolvedOutcome(WireEnum):
+    answered = "answered"
+    not_shown = "not_shown"
+
+
+class RequestResolvedPayload(Payload):
+    """The accepted settlement projection: the exact native request identity plus the exact
+    advertised runtime epoch — never an answer, secret or approval value (``outcome``
+    distinguishes a real answer from the unanimous window-owned NOT_SHOWN decline)."""
+
+    id: str
+    method: str
+    outcome: RequestResolvedOutcome
+    runtime_epoch: str
+    session_id: str
+    stored_session_id: str
+
+
+event("request.resolved", RequestResolvedPayload,
+      doc="An open server→client request was settled; clear the matching card and update attention once.")

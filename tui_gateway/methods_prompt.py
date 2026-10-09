@@ -1176,7 +1176,9 @@ def _(rid, params: dict) -> dict:
         return _err(rid, 4002, "id and an object result required")
     from tui_gateway import server_requests
     frame = {"jsonrpc": "2.0", "id": request_id, "result": result}
-    if server_requests.resolve_response(frame) or _relay_compute_host_response(frame):
+    # Carry the caller's transport: strict shared mode authorizes response settlement against the
+    # session's verified owner + live membership, and a missing transport fails closed.
+    if server_requests.resolve_response(frame, current_transport()) or _relay_compute_host_response(frame):
         return _ok(rid, {"status": "ok"})
     return _ok(rid, {"status": "expired"})
 

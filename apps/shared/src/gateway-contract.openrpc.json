@@ -2095,6 +2095,42 @@
       }
     },
     {
+      "name": "orchestration.get",
+      "summary": "",
+      "params": [
+        {
+          "name": "params",
+          "schema": {
+            "$ref": "#/components/schemas/OrchestrationGetParams"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/OrchestrationResult"
+        }
+      }
+    },
+    {
+      "name": "orchestration.set",
+      "summary": "",
+      "params": [
+        {
+          "name": "params",
+          "schema": {
+            "$ref": "#/components/schemas/OrchestrationSetParams"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/OrchestrationResult"
+        }
+      }
+    },
+    {
       "name": "paste.collapse",
       "summary": "Spill a large paste to a file and hand back the inline placeholder.",
       "params": [
@@ -3445,6 +3481,24 @@
       }
     },
     {
+      "name": "session.info.get",
+      "summary": "",
+      "params": [
+        {
+          "name": "params",
+          "schema": {
+            "$ref": "#/components/schemas/SessionInfoGetParams"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/SessionInfoGetResult"
+        }
+      }
+    },
+    {
       "name": "session.interrupt",
       "summary": "Stop the running turn (and streaming TTS); retires the crash-recovery marker.",
       "params": [
@@ -3567,6 +3621,42 @@
         "name": "result",
         "schema": {
           "$ref": "#/components/schemas/SessionSetHiddenResult"
+        }
+      }
+    },
+    {
+      "name": "session.shared.answer",
+      "summary": "Answer one open native server\u2192client request by its exact identity, after validation.",
+      "params": [
+        {
+          "name": "params",
+          "schema": {
+            "$ref": "#/components/schemas/SharedAnswerParams"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/SharedAnswerResult"
+        }
+      }
+    },
+    {
+      "name": "session.shared.rpc",
+      "summary": "Invoke one allowlisted native handler under the exact advertised runtime epoch.",
+      "params": [
+        {
+          "name": "params",
+          "schema": {
+            "$ref": "#/components/schemas/SharedRpcParams"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/SharedRpcResult"
         }
       }
     },
@@ -20179,6 +20269,111 @@
         "title": "OptionalProjectResult",
         "type": "object"
       },
+      "OrchestrationGetParams": {
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "title": "OrchestrationGetParams",
+        "type": "object"
+      },
+      "OrchestrationResult": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          },
+          "supported": {
+            "const": true,
+            "title": "Supported",
+            "type": "boolean"
+          },
+          "scope": {
+            "const": "session",
+            "title": "Scope",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "stored_session_id": {
+            "title": "Stored Session Id",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "worker_provider": {
+            "title": "Worker Provider",
+            "type": "string"
+          },
+          "worker_model": {
+            "title": "Worker Model",
+            "type": "string"
+          },
+          "worker_reasoning_effort": {
+            "title": "Worker Reasoning Effort",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "supported",
+          "scope",
+          "session_id",
+          "stored_session_id",
+          "enabled",
+          "worker_provider",
+          "worker_model",
+          "worker_reasoning_effort"
+        ],
+        "title": "OrchestrationResult",
+        "type": "object"
+      },
+      "OrchestrationSetParams": {
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "worker_provider": {
+            "title": "Worker Provider",
+            "type": "string"
+          },
+          "worker_model": {
+            "title": "Worker Model",
+            "type": "string"
+          },
+          "worker_reasoning_effort": {
+            "default": "",
+            "title": "Worker Reasoning Effort",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "enabled",
+          "worker_provider",
+          "worker_model"
+        ],
+        "title": "OrchestrationSetParams",
+        "type": "object"
+      },
       "PaneRevealPayload": {
         "additionalProperties": true,
         "description": "``tools/focus_pane_tool.py``.",
@@ -20617,6 +20812,26 @@
           }
         },
         "title": "PendingApproval",
+        "type": "object"
+      },
+      "PendingRequest": {
+        "additionalProperties": false,
+        "description": "One unresolved native wait's identity: opaque ``request_id`` + method. Never prompt text.",
+        "properties": {
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "type"
+        ],
+        "title": "PendingRequest",
         "type": "object"
       },
       "PersistedTurn": {
@@ -27553,6 +27768,42 @@
           "reason": {
             "title": "Reason",
             "type": "string"
+          },
+          "runtime_epoch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Runtime Epoch"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Session Id"
+          },
+          "stored_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Stored Session Id"
           }
         },
         "required": [
@@ -27561,6 +27812,53 @@
           "reason"
         ],
         "title": "RequestCancelPayload",
+        "type": "object"
+      },
+      "RequestResolvedOutcome": {
+        "enum": [
+          "answered",
+          "not_shown"
+        ],
+        "title": "RequestResolvedOutcome",
+        "type": "string"
+      },
+      "RequestResolvedPayload": {
+        "additionalProperties": false,
+        "description": "The accepted settlement projection: the exact native request identity plus the exact\nadvertised runtime epoch \u2014 never an answer, secret or approval value (``outcome``\ndistinguishes a real answer from the unanimous window-owned NOT_SHOWN decline).",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/RequestResolvedOutcome"
+          },
+          "runtime_epoch": {
+            "title": "Runtime Epoch",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "stored_session_id": {
+            "title": "Stored Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "method",
+          "outcome",
+          "runtime_epoch",
+          "session_id",
+          "stored_session_id"
+        ],
+        "title": "RequestResolvedPayload",
         "type": "object"
       },
       "ResumePhaseStatus": {
@@ -28983,6 +29281,32 @@
               }
             ],
             "default": null
+          },
+          "session_attention": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SessionAttention"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "pending_requests": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PendingRequest"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Pending Requests"
           }
         },
         "required": [
@@ -29036,6 +29360,32 @@
           "title": {
             "title": "Title",
             "type": "string"
+          },
+          "session_attention": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SessionAttention"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "pending_requests": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PendingRequest"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Pending Requests"
           }
         },
         "required": [
@@ -29167,6 +29517,139 @@
           "session_key"
         ],
         "title": "SessionArchiveResult",
+        "type": "object"
+      },
+      "SessionAttention": {
+        "additionalProperties": false,
+        "description": "``tui_gateway/session_attention.py`` \u2014 one canonical projection per live session. Also ships\nas a field of the live projections (active list / activate / resume).",
+        "properties": {
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "substatus": {
+            "default": "",
+            "title": "Substatus",
+            "type": "string"
+          },
+          "request_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Request Types",
+            "type": "array"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "epoch": {
+            "title": "Epoch",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "number"
+          },
+          "turn_started_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Turn Started At"
+          }
+        },
+        "required": [
+          "schema_version",
+          "status",
+          "revision",
+          "epoch",
+          "updated_at"
+        ],
+        "title": "SessionAttention",
+        "type": "object"
+      },
+      "SessionAttentionEventPayload": {
+        "additionalProperties": false,
+        "description": "Session-attention event identity is additive; native active-list/resume snapshots stay unchanged.",
+        "properties": {
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "substatus": {
+            "default": "",
+            "title": "Substatus",
+            "type": "string"
+          },
+          "request_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Request Types",
+            "type": "array"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "epoch": {
+            "title": "Epoch",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "number"
+          },
+          "turn_started_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Turn Started At"
+          },
+          "runtime_epoch": {
+            "title": "Runtime Epoch",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "stored_session_id": {
+            "title": "Stored Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "status",
+          "revision",
+          "epoch",
+          "updated_at",
+          "runtime_epoch",
+          "session_id",
+          "stored_session_id"
+        ],
+        "title": "SessionAttentionEventPayload",
         "type": "object"
       },
       "SessionBranchParams": {
@@ -31083,6 +31566,45 @@
         "title": "SessionHistoryResult",
         "type": "object"
       },
+      "SessionInfoGetParams": {
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "title": "SessionInfoGetParams",
+        "type": "object"
+      },
+      "SessionInfoGetResult": {
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "stored_session_id": {
+            "title": "Stored Session Id",
+            "type": "string"
+          },
+          "info": {
+            "additionalProperties": true,
+            "title": "Info",
+            "type": "object"
+          }
+        },
+        "required": [
+          "session_id",
+          "stored_session_id",
+          "info"
+        ],
+        "title": "SessionInfoGetResult",
+        "type": "object"
+      },
       "SessionInterruptParams": {
         "additionalProperties": false,
         "properties": {
@@ -32020,6 +32542,32 @@
               }
             ],
             "default": null
+          },
+          "session_attention": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SessionAttention"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "pending_requests": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PendingRequest"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Pending Requests"
           }
         },
         "required": [
@@ -33303,6 +33851,65 @@
         "title": "SetupStatusResult",
         "type": "object"
       },
+      "SharedAnswerParams": {
+        "additionalProperties": false,
+        "properties": {
+          "runtime_epoch": {
+            "title": "Runtime Epoch",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "stored_session_id": {
+            "title": "Stored Session Id",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "request_type": {
+            "title": "Request Type",
+            "type": "string"
+          },
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "runtime_epoch",
+          "session_id",
+          "stored_session_id",
+          "request_id",
+          "request_type",
+          "result"
+        ],
+        "title": "SharedAnswerParams",
+        "type": "object"
+      },
+      "SharedAnswerResult": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "enum": [
+              "accepted",
+              "already_resolved",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "SharedAnswerResult",
+        "type": "object"
+      },
       "SharedMetricsConsentResult": {
         "additionalProperties": false,
         "description": "The focused profile's ``telemetry.shared_metrics`` opt-ins. ``send`` is never true while\n``enabled`` is false; ``decided`` = either key is written in config.yaml (the shipped defaults\nare not an answer) and it is not a ``reask``: an \"off\" from before the type-ahead fix, offered\nonce more with the reason.",
@@ -33832,6 +34439,38 @@
           "ok"
         ],
         "title": "SharedMetricsUpdateRunResult",
+        "type": "object"
+      },
+      "SharedRpcParams": {
+        "additionalProperties": false,
+        "properties": {
+          "runtime_epoch": {
+            "title": "Runtime Epoch",
+            "type": "string"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          }
+        },
+        "required": [
+          "runtime_epoch",
+          "method",
+          "params"
+        ],
+        "title": "SharedRpcParams",
+        "type": "object"
+      },
+      "SharedRpcResult": {
+        "additionalProperties": true,
+        "description": "The wrapped native handler's result, verbatim \u2014 its closed shape is that method's contract.",
+        "properties": {},
+        "title": "SharedRpcResult",
         "type": "object"
       },
       "ShellExecParams": {
@@ -40857,6 +41496,18 @@
       ]
     },
     {
+      "name": "request.resolved",
+      "summary": "An open server\u2192client request was settled; clear the matching card and update attention once.",
+      "params": [
+        {
+          "name": "payload",
+          "schema": {
+            "$ref": "#/components/schemas/RequestResolvedPayload"
+          }
+        }
+      ]
+    },
+    {
       "name": "review.summary",
       "summary": "Background review of the last turn finished.",
       "params": [
@@ -40864,6 +41515,18 @@
           "name": "payload",
           "schema": {
             "$ref": "#/components/schemas/ReviewSummaryPayload"
+          }
+        }
+      ]
+    },
+    {
+      "name": "session.attention",
+      "summary": "A session's canonical attention state moved, fenced by runtime/live/durable identity.",
+      "params": [
+        {
+          "name": "payload",
+          "schema": {
+            "$ref": "#/components/schemas/SessionAttentionEventPayload"
           }
         }
       ]

@@ -311,7 +311,9 @@ def main():
     _write_or_exit({
         "jsonrpc": "2.0", "method": "event",
         "params": {"type": "gateway.ready", "payload": {
-            "skin": resolve_skin(), "change_events": True, "replay_epoch": replay_epoch()}}},
+            "skin": resolve_skin(), "change_events": True, "replay_epoch": replay_epoch(),
+            # read-only advertisement of the shared adapter surface when the config gate is on
+            **server._shared_gateway_ready_extra()}}},
         "startup write failed (broken stdout pipe before first event)")
 
     # Live-apply skins Hermes activates mid-conversation.
