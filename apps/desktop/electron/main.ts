@@ -316,7 +316,8 @@ import {
   checkoutHeadIdentity,
   HOST_SPAWN_GATE_STALE_MS,
   spawnLedgerPath,
-  type SpawnReservation
+  type SpawnReservation,
+  verifyManagedHostIdentity
 } from './host-backend-attach'
 import { assertNoSecondLocalBackend, assertNotPassiveSpawn } from './host-backend-singleton'
 import { lookupPublishedSessionToken } from './host-published-token'
@@ -12665,7 +12666,21 @@ function startAttachedBackendMonitor(attached: AttachedBackend) {
 
 /** Discover and attach to the host's running backend; null means "spawn one". */
 function attachToRunningHostBackend(): Promise<AttachedBackend | null> {
-  const options = { isolated: ISOLATED_BACKEND, ledgerPath: spawnLedgerPath(HERMES_HOME, path.join) }
+  const configPath = path.join(HERMES_HOME, 'config.yaml')
+  const configuredSharedUrl = readDesktopLaunchConfig(fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '').sharedBackendUrl
+  let requiredBaseUrl: string | undefined
+
+  if (configuredSharedUrl && !ISOLATED_BACKEND) {
+    const url = new URL(configuredSharedUrl)
+
+    if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
+      throw new Error('desktop.shared_backend_url must name an HTTP loopback owner with an explicit port.')
+    }
+
+    requiredBaseUrl = url.origin
+  }
+
+  const options = { isolated: ISOLATED_BACKEND, ledgerPath: spawnLedgerPath(HERMES_HOME, path.join), requiredBaseUrl, signal: localBackendLifecycle.signal }
 
   return attachOrReserveSpawn(options, hostBackendAttachDeps(), hostSpawnGateDeps())
     .then(outcome => {
@@ -12680,6 +12695,10 @@ function attachToRunningHostBackend(): Promise<AttachedBackend | null> {
       return null
     })
     .catch(error => {
+      if (requiredBaseUrl || options.signal.aborted) {
+        throw error
+      }
+
       // Discovery must never be able to block boot: fall through to spawning.
       rememberLog(`[attach] host backend discovery failed (${error.message}); spawning our own`)
 
@@ -12699,6 +12718,8 @@ function hostBackendAttachDeps() {
       checkoutHeadIdentity(resolveUpdateRoot(), isGitCheckout, (args, options) =>
         execGit(resolveGitBinary(), args, options)
       ),
+    // Required managed owner (desktop.shared_backend_url): authenticated PID/role proof.
+    verifyIdentity: verifyManagedHostIdentity,
     log: rememberLog,
     readLedger: (target: string) => {
       try {

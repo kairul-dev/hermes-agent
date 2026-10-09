@@ -36,6 +36,16 @@ export interface AttachedBackend {
   wsUrl: string
 }
 
+export async function verifyManagedHostIdentity(record: HostBackendRecord, token: string): Promise<boolean> {
+  const response = await fetch(`${recordBaseUrl(record)}/api/host/identity`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(3_000)
+  })
+  const identity = response.ok ? await response.json() : null
+
+  return identity?.ok === true && identity?.protocolVersion === 1 && identity?.pid === record.pid && identity?.role === 'serve'
+}
+
 export interface HostBackendAttachDeps {
   /** Read the ledger file; return null when it is missing/unreadable. */
   readLedger: (path: string) => string | null
@@ -69,6 +79,8 @@ export interface HostBackendAttachDeps {
    * Null = the backend answered without one; a rejection = it could not be read.
    */
   backendCodeIdentity?: (baseUrl: string) => Promise<string | null>
+  /** Authenticated PID/role proof for an explicitly required managed owner. */
+  verifyIdentity?: (record: HostBackendRecord, token: string) => Promise<boolean>
   log: (message: string) => void
 }
 
@@ -134,7 +146,8 @@ async function validate(
   record: HostBackendRecord,
   deps: HostBackendAttachDeps,
   expectedCommit: string | null,
-  unreadableIdentity: 'unconfirmed' | 'token-attach'
+  unreadableIdentity: 'unconfirmed' | 'token-attach',
+  required = false
 ): Promise<AttachedBackend | null | typeof UNCONFIRMED> {
   const baseUrl = recordBaseUrl(record)
   const servedToken = nonemptyToken(await deps.resolveServedToken(baseUrl).catch(() => null))
@@ -156,6 +169,12 @@ async function validate(
     return null
   }
 
+  if (required && !(await deps.verifyIdentity?.(record, token).catch(() => false))) {
+    deps.log(`[attach] ${baseUrl} did not prove the required managed owner; not attaching`)
+
+    return null
+  }
+
   try {
     await deps.waitForReady(baseUrl, token)
   } catch (error) {
@@ -164,7 +183,10 @@ async function validate(
     return null
   }
 
-  if (expectedCommit) {
+  // A required managed owner is pinned by URL and proven above by an authenticated
+  // PID/role check; it deliberately runs its own checkout, so the commit-equality
+  // rule that guards an ordinary attach does not apply to it.
+  if (expectedCommit && !required) {
     // Unknown backend identity is a mismatch: a backend predating the field is
     // older code by construction.
     const resolve = deps.backendCodeIdentity ?? fetchBackendCodeIdentity
@@ -215,7 +237,7 @@ async function validate(
  * the caller's signal to spawn exactly one.
  */
 export async function attachToHostBackend(
-  options: { isolated: boolean; ledgerPath: string },
+  options: { isolated: boolean; ledgerPath: string; requiredBaseUrl?: string },
   deps: HostBackendAttachDeps
 ): Promise<AttachedBackend | null> {
   const found = await findHostBackend(options, deps, await expectedCommitFor(deps))
@@ -229,12 +251,14 @@ async function expectedCommitFor(deps: HostBackendAttachDeps): Promise<string | 
 }
 
 async function findHostBackend(
-  { isolated, ledgerPath }: { isolated: boolean; ledgerPath: string },
+  { isolated, ledgerPath, requiredBaseUrl }: { isolated: boolean; ledgerPath: string; requiredBaseUrl?: string },
   deps: HostBackendAttachDeps,
   expectedCommit: string | null,
   unreadableIdentity: 'unconfirmed' | 'token-attach' = 'unconfirmed'
 ): Promise<AttachedBackend | null | typeof UNCONFIRMED> {
-  const records = parseSpawnLedger(deps.readLedger(ledgerPath))
+  const records = parseSpawnLedger(deps.readLedger(ledgerPath)).filter(
+    record => !requiredBaseUrl || recordBaseUrl(record) === requiredBaseUrl
+  )
   const decision = spawnOrAttach({ isolated, records, isPidAlive: deps.isPidAlive })
 
   if (decision.action === 'spawn') {
@@ -258,7 +282,7 @@ async function findHostBackend(
   let unconfirmed = false
 
   for (const record of ordered) {
-    const attached = await validate(record, deps, expectedCommit, unreadableIdentity)
+    const attached = await validate(record, deps, expectedCommit, unreadableIdentity, Boolean(requiredBaseUrl))
 
     if (attached === UNCONFIRMED) {
       unconfirmed = true
@@ -301,7 +325,7 @@ export interface SpawnReservation {
  * failed; the ledger entry only appears after the new backend binds.
  */
 export async function attachOrReserveSpawn(
-  options: { isolated: boolean; ledgerPath: string },
+  options: { isolated: boolean; ledgerPath: string; requiredBaseUrl?: string; signal?: AbortSignal },
   deps: HostBackendAttachDeps,
   gate: HostSpawnGateDeps,
   { pollMs = 500, waitBudgetMs = HOST_SPAWN_GATE_STALE_MS }: { pollMs?: number; waitBudgetMs?: number } = {}
@@ -320,6 +344,23 @@ export async function attachOrReserveSpawn(
   const deadline = gate.now() + waitBudgetMs
   // An unreadable identity gets its own short budget, counted from first sight.
   let identityDeadline = found === UNCONFIRMED ? gate.now() + HOST_IDENTITY_RETRY_MS : Infinity
+
+  if (options.requiredBaseUrl && !options.isolated) {
+    deps.log(`[attach] waiting for the managed shared backend on ${options.requiredBaseUrl}; private spawn disabled`)
+
+    while (gate.now() < deadline) {
+      options.signal?.throwIfAborted()
+      await gate.sleep(pollMs)
+      options.signal?.throwIfAborted()
+      const late = await attachToHostBackend(options, deps)
+
+      if (late) {
+        return { attached: late }
+      }
+    }
+
+    throw new Error(`The shared Hermes backend on ${options.requiredBaseUrl} is not ready. Start its managed service and retry.`)
+  }
 
   while (gate.now() < (found === UNCONFIRMED ? Math.min(deadline, identityDeadline) : deadline)) {
     const gateState = gate.read()

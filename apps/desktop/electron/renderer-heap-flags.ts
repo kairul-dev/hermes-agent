@@ -15,6 +15,8 @@ export interface DesktopLaunchConfig {
   rendererAccessibility?: boolean
   /** `desktop.ssh_path`: explicit Windows ssh client (#103288); unset when absent. */
   sshPath?: string
+  /** `desktop.shared_backend_url`: attach-only local owner, including during recovery. */
+  sharedBackendUrl?: string
 }
 
 export interface PlannedSwitch {
@@ -66,7 +68,9 @@ export function readDesktopLaunchConfig(yamlText: string): DesktopLaunchConfig {
     const [, key, rawValue] = keyed
     const value = rawValue.replace(/\s+#.*$/, '')
 
-    if (key === 'ssh_path') {
+    if (key === 'shared_backend_url') {
+      out.sharedBackendUrl = unquote(value)
+    } else if (key === 'ssh_path') {
       // YAML double quotes escape backslashes ("C:\\Git\\usr\\bin\\ssh.exe");
       // plain and single-quoted scalars keep them literally.
       const doubleQuoted = /^"(.*)"$/.exec(value)
