@@ -77,6 +77,10 @@ export function AccountUsagePanel() {
   const now = useNow(CLOCK_TICK_MS, visible)
   const profileKey = normalizeProfileKey(profile)
   const scope = `${connectionId ?? ''}|${profileKey}`
+  // Whether the store holds data for THIS scope. It flips to false when something
+  // wipes the store without moving the scope (a gateway switch that failed after
+  // its wipe), which is the cue to fetch again.
+  const hasData = state?.scope === scope
 
   useEffect(() => {
     if (gatewayState !== 'open' || !visible) {
@@ -86,16 +90,25 @@ export function AccountUsagePanel() {
     const refresh = () => void refreshAccountUsage(requestGateway, { profile: profileKey, scope })
     const hidden = () => document.visibilityState === 'hidden'
 
-    refresh()
+    // Ask only when this scope has nothing, or what it has has aged out of the
+    // backend's cache span — so a remount, or this effect re-running because
+    // data just arrived, never re-asks.
+    const needsRefresh = () => {
+      const held = $accountUsage.get()
+
+      return !held || held.scope !== scope || Date.now() - held.receivedAt > ACCOUNT_USAGE_FRESH_MS
+    }
+
+    if (needsRefresh()) {
+      refresh()
+    }
 
     const interval = window.setInterval(() => !hidden() && refresh(), BACKSTOP_REFRESH_MS)
 
     // Coming back to the window is when stale numbers hurt; the age check keeps
     // a flurry of focus events from re-asking inside the backend's cache span.
     const onActive = () => {
-      const held = $accountUsage.get()
-
-      if (!hidden() && (!held || held.scope !== scope || Date.now() - held.receivedAt > ACCOUNT_USAGE_FRESH_MS)) {
+      if (!hidden() && needsRefresh()) {
         refresh()
       }
     }
@@ -108,7 +121,7 @@ export function AccountUsagePanel() {
       window.removeEventListener('focus', onActive)
       document.removeEventListener('visibilitychange', onActive)
     }
-  }, [gatewayState, profileKey, requestGateway, scope, visible])
+  }, [gatewayState, hasData, profileKey, requestGateway, scope, visible])
 
   // Held keyed by the scope it describes: never paint the previous profile's
   // account under the one that just became active.
