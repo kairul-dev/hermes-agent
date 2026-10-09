@@ -6,6 +6,6 @@
  * methods are OWN properties, and `Storage.prototype` is never consulted. Pick whichever the live
  * `localStorage` actually dispatches through.
  */
-export function storageWriteTarget(): object {
+export function storageWriteTarget(): Storage {
   return Object.prototype.hasOwnProperty.call(localStorage, 'setItem') ? localStorage : Storage.prototype
 }
