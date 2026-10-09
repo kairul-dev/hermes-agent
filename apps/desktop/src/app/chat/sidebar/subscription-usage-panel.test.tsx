@@ -9,6 +9,7 @@ import { fmtDayTime } from '@/lib/time'
 import { requestGatewayForAgent } from '@/store/gateway'
 import { $gatewayState } from '@/store/session'
 import { deferred } from '@/test/deferred'
+import { storageWriteTarget } from '@/test/storage-spy'
 
 import {
   persistUsageProviderSelection,
@@ -1043,7 +1044,7 @@ describe('SubscriptionUsagePanel provider selection', () => {
     render(<SubscriptionUsagePanel />)
     await within(panel()).findByText('Beta')
 
-    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    const setItem = vi.spyOn(storageWriteTarget(), 'setItem').mockImplementation(() => {
       throw new Error('storage unavailable')
     })
 

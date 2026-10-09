@@ -1635,6 +1635,7 @@ export function overlayConcurrentMessageChanges(
 ): ChatMessage[] {
   const baselineById = new Map(baselineMessages.map(message => [message.id, message]))
   const nextIndexById = new Map(nextMessages.map((message, index) => [message.id, index]))
+
   const nextUserRowIds = new Set(
     nextMessages.filter(message => message.role === 'user').flatMap(message =>
       typeof message.rowId === 'number' && Number.isSafeInteger(message.rowId) && message.rowId > 0
@@ -1642,6 +1643,7 @@ export function overlayConcurrentMessageChanges(
         : []
     )
   )
+
   let changed = false
   const overlaid = [...nextMessages]
   const dropped = new Set<string>()

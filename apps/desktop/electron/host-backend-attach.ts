@@ -41,6 +41,7 @@ export async function verifyManagedHostIdentity(record: HostBackendRecord, token
     headers: { Authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(3_000)
   })
+
   const identity = response.ok ? await response.json() : null
 
   return identity?.ok === true && identity?.protocolVersion === 1 && identity?.pid === record.pid && identity?.role === 'serve'
@@ -259,6 +260,7 @@ async function findHostBackend(
   const records = parseSpawnLedger(deps.readLedger(ledgerPath)).filter(
     record => !requiredBaseUrl || recordBaseUrl(record) === requiredBaseUrl
   )
+
   const decision = spawnOrAttach({ isolated, records, isPidAlive: deps.isPidAlive })
 
   if (decision.action === 'spawn') {

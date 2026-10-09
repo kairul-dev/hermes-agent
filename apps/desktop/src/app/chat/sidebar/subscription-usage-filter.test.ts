@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { storageWriteTarget } from '@/test/storage-spy'
+
 import {
   filterUsageProviders,
   isUsageProviderSelected,
@@ -79,9 +81,8 @@ describe('usage provider selection persistence', () => {
     })
 
     it('reports not-persisted when storage rejects the write instead of claiming success', () => {
-      // jsdom's Storage instance ignores own-property spies; the prototype method
-      // is what instances actually call, so that is where the failure is injected.
-      const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      // Where setItem lives depends on the runtime (jsdom: Storage.prototype; Node 26 shim: own property).
+      const setItem = vi.spyOn(storageWriteTarget(), 'setItem').mockImplementation(() => {
         throw new Error('QuotaExceededError')
       })
 
@@ -93,7 +94,7 @@ describe('usage provider selection persistence', () => {
     })
 
     it('reports not-persisted when the write is dropped silently and never reads back', () => {
-      const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {})
+      const setItem = vi.spyOn(storageWriteTarget(), 'setItem').mockImplementation(() => {})
 
       try {
         expect(persistUsageProviderSelection(scope, ['claude'])).toBe(false)
