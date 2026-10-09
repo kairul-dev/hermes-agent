@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Optional
@@ -28,6 +30,9 @@ class AccountUsageWindow:
     used_percent: Optional[float] = None
     reset_at: Optional[datetime] = None
     detail: Optional[str] = None
+    # Stable window identity for UIs ("five_hour" | "weekly"); ``label`` is
+    # provider copy and must not be string-matched. None = no panel slot.
+    kind: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -525,7 +530,10 @@ def _fetch_codex_account_usage(
     payload = response.json() or {}
     rate_limit = payload.get("rate_limit") or {}
     windows: list[AccountUsageWindow] = []
-    for key, label in (("primary_window", "Session"), ("secondary_window", "Weekly")):
+    for key, label, kind in (
+        ("primary_window", "Session", "five_hour"),
+        ("secondary_window", "Weekly", "weekly"),
+    ):
         window = rate_limit.get(key) or {}
         used = window.get("used_percent")
         if used is None:
@@ -535,6 +543,7 @@ def _fetch_codex_account_usage(
                 label=label,
                 used_percent=float(used),
                 reset_at=_parse_dt(window.get("reset_at")),
+                kind=kind,
             )
         )
     details: list[str] = []
@@ -772,12 +781,12 @@ def _fetch_anthropic_account_usage() -> Optional[AccountUsageSnapshot]:
     payload = response.json() or {}
     windows: list[AccountUsageWindow] = []
     mapping = (
-        ("five_hour", "Current session"),
-        ("seven_day", "Current week"),
-        ("seven_day_opus", "Opus week"),
-        ("seven_day_sonnet", "Sonnet week"),
+        ("five_hour", "Current session", "five_hour"),
+        ("seven_day", "Current week", "weekly"),
+        ("seven_day_opus", "Opus week", None),
+        ("seven_day_sonnet", "Sonnet week", None),
     )
-    for key, label in mapping:
+    for key, label, kind in mapping:
         window = payload.get(key) or {}
         util = window.get("utilization")
         if util is None:
@@ -788,6 +797,7 @@ def _fetch_anthropic_account_usage() -> Optional[AccountUsageSnapshot]:
                 label=label,
                 used_percent=used,
                 reset_at=_parse_dt(window.get("resets_at")),
+                kind=kind,
             )
         )
     details: list[str] = []
@@ -900,3 +910,105 @@ def fetch_account_usage(
     except Exception:
         return None
     return None
+
+
+# ── Sidebar usage panel (desktop) ────────────────────────────────────────────
+# One structured payload for the two subscription-limit providers the panel
+# shows side by side, independent of whichever provider the session is on.
+# ``fetch_account_usage`` fails open per provider, so a provider the user has
+# no credentials for simply doesn't appear.
+
+PANEL_PROVIDERS: tuple[tuple[str, str], ...] = (
+    ("openai-codex", "Codex"),
+    ("anthropic", "Claude"),
+)
+_PANEL_WINDOW_KINDS = ("five_hour", "weekly")
+_PANEL_TTL_S = 60.0
+_PANEL_FETCH_TIMEOUT_S = 12.0
+
+_panel_lock = threading.Lock()
+# (hermes_home, provider) -> (monotonic fetched-at, payload). Keyed by home so a
+# secondary profile never reads the default profile's account.
+_panel_cache: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
+
+
+def _panel_entry(provider: str, label: str, snapshot: Optional[AccountUsageSnapshot]) -> Optional[dict[str, Any]]:
+    if snapshot is None or snapshot.unavailable_reason:
+        return None
+    windows = []
+    for kind in _PANEL_WINDOW_KINDS:
+        window = next((w for w in snapshot.windows if w.kind == kind and w.used_percent is not None), None)
+        if window is None:
+            continue
+        windows.append(
+            {
+                "kind": kind,
+                "used_percent": max(0.0, min(100.0, float(window.used_percent))),
+                "reset_at": window.reset_at.isoformat() if window.reset_at else None,
+            }
+        )
+    if not windows:
+        return None
+    return {
+        "id": provider,
+        "label": label,
+        "plan": snapshot.plan,
+        "fetched_at": snapshot.fetched_at.isoformat(),
+        "stale": False,
+        "windows": windows,
+    }
+
+
+def _fetch_panel_entry(provider: str, label: str, home: str, refresh: bool) -> Optional[dict[str, Any]]:
+    from agent.deadline import run_bounded_sync
+
+    key = (home, provider)
+    with _panel_lock:
+        cached = _panel_cache.get(key)
+    if cached and not refresh and time.monotonic() - cached[0] < _PANEL_TTL_S:
+        return cached[1]
+
+    entry: Optional[dict[str, Any]] = None
+    try:
+        result = run_bounded_sync(
+            lambda: fetch_account_usage(provider),
+            _PANEL_FETCH_TIMEOUT_S,
+            label=f"account-usage-{provider}",
+        )
+        if not result.timed_out:
+            entry = _panel_entry(provider, label, result.value)
+    except Exception:
+        logger.debug("account usage ▸ panel fetch failed for %s (fail-open)", provider, exc_info=True)
+
+    if entry is None:
+        # Transient failure (network, timeout, expired token mid-refresh): keep
+        # showing the last good numbers, honestly marked stale, instead of
+        # blanking the panel. A provider never seen successfully stays absent.
+        if cached:
+            return {**cached[1], "stale": True}
+        return None
+
+    with _panel_lock:
+        _panel_cache[key] = (time.monotonic(), entry)
+    return entry
+
+
+def build_account_usage_panel(*, refresh: bool = False) -> list[dict[str, Any]]:
+    """Subscription-limit windows (5-hour + weekly) for every panel provider.
+
+    Both providers are fetched concurrently and cached for ``_PANEL_TTL_S``
+    per profile home; ``refresh=True`` bypasses the cache. Returns only the
+    providers that produced data, in ``PANEL_PROVIDERS`` order.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from hermes_constants import get_hermes_home
+
+    home = str(get_hermes_home())
+    with ThreadPoolExecutor(max_workers=len(PANEL_PROVIDERS)) as pool:
+        futures = [
+            pool.submit(_fetch_panel_entry, provider, label, home, refresh)
+            for provider, label in PANEL_PROVIDERS
+        ]
+        entries = [future.result() for future in futures]
+    return [entry for entry in entries if entry is not None]

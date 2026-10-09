@@ -144,6 +144,7 @@ import {
 } from '../../routes'
 import type { SidebarNavItem } from '../../types'
 
+import { AccountUsagePanel } from './account-usage-panel'
 import { SidebarCronJobsSection } from './cron-jobs-section'
 import { SidebarFilterMenu } from './filter-menu'
 import { SidebarLoadMoreRow } from './load-more-row'
@@ -1912,6 +1913,7 @@ export function ChatSidebar({
         {!showSessionSections && <SidebarBlankState onNewProject={openProjectCreate} />}
 
         <div className="shrink-0 px-0.5 pb-1 pt-0.5">
+          <AccountUsagePanel />
           <ProfileRail />
         </div>
       </SidebarContent>

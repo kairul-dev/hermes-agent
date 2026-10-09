@@ -1668,3 +1668,30 @@ export interface ModelAssignmentResponse {
   stale_aux?: StaleAuxAssignment[]
   tasks?: string[]
 }
+
+/** Which subscription-limit window a usage row describes. Stable ids — the
+ *  provider's own copy ("Current session", "Session") never reaches the UI. */
+export type AccountUsageWindowKind = 'five_hour' | 'weekly'
+
+export interface AccountUsageWindow {
+  kind: AccountUsageWindowKind
+  /** 0–100, already clamped by the backend. */
+  used_percent: number
+  /** ISO-8601 instant the window resets, or null when the provider omits it. */
+  reset_at: null | string
+}
+
+export interface AccountUsageProvider {
+  id: string
+  /** Brand name ("Codex", "Claude") — not translated. */
+  label: string
+  plan?: null | string
+  /** True when the last refresh failed and these are the last good numbers. */
+  stale: boolean
+  windows: AccountUsageWindow[]
+}
+
+/** `account.usage` — only providers with usable credentials appear. */
+export interface AccountUsageResponse {
+  providers: AccountUsageProvider[]
+}

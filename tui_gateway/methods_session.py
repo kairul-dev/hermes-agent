@@ -1849,6 +1849,26 @@ def _(rid, params: dict) -> dict:
     return _ok(rid, usage)
 
 
+@method("account.usage")
+@_profile_scoped
+def _(rid, params: dict) -> dict:
+    """Subscription-limit windows (5-hour + weekly) for the sidebar usage panel.
+
+    Account-level, not session-level: independent of the focused session and of
+    which provider it is on. Returns ``{"providers": [...]}`` with only the
+    providers that have usable credentials; ``refresh: true`` bypasses the
+    60s per-profile cache. Fail-open: any error yields an empty list so the
+    panel just stays hidden.
+    """
+    try:
+        from agent.account_usage import build_account_usage_panel
+
+        return _ok(rid, {"providers": build_account_usage_panel(refresh=bool(params.get("refresh")))})
+    except Exception:
+        logger.debug("account.usage failed (fail-open)", exc_info=True)
+        return _ok(rid, {"providers": []})
+
+
 @method("session.context_breakdown")
 def _(rid, params: dict) -> dict:
     session, err = _sess_nowait(params, rid)

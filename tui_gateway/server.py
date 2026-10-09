@@ -275,6 +275,7 @@ _LONG_HANDLERS = frozenset(
         "subscription.resume",
         "subscription.upgrade",
         "usage.bars",
+        "account.usage",
         "session.usage",
         "billing.step_up",
         "browser.manage",
