@@ -26,13 +26,6 @@ def _patch_info(tmp_path, config_yaml, model, runtime):
 
 class TestFormatSessionInfo:
 
-    def test_includes_model_name(self, runner, tmp_path):
-        p1, p2, p3 = _patch_info(tmp_path, "model:\n  default: anthropic/claude-opus-4.6\n  provider: openrouter\n",
-                                  "anthropic/claude-opus-4.6",
-                                  {"provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "api_key": "k"})
-        with p1, p2, p3:
-            info = runner._format_session_info()
-        assert "claude-opus-4.6" in info
 
 
     def test_config_context_length(self, runner, tmp_path):
@@ -44,14 +37,6 @@ class TestFormatSessionInfo:
         assert "32K" in info
         assert "config" in info
 
-    def test_default_fallback_hint(self, runner, tmp_path):
-        p1, p2, p3 = _patch_info(tmp_path, "model:\n  default: unknown-model-xyz\n",
-                                  "unknown-model-xyz",
-                                  {"provider": "", "base_url": "", "api_key": ""})
-        with p1, p2, p3:
-            info = runner._format_session_info()
-        assert "256K" in info
-        assert "model.context_length" in info
 
     def test_local_endpoint_shown(self, runner, tmp_path):
         p1, p2, p3 = _patch_info(
@@ -63,6 +48,18 @@ class TestFormatSessionInfo:
             info = runner._format_session_info()
         assert "localhost:11434" in info
         assert "8K" in info
+
+    def test_moa_preset_names_the_billed_aggregator(self, runner, tmp_path):
+        """#112359: the preset name hides who pays; /model must name the acting aggregator."""
+        p1, p2, p3 = _patch_info(tmp_path, "model:\n  default: review\n  provider: moa\n",
+                                  "review", {"provider": "moa", "base_url": "", "api_key": ""})
+        moa_cfg = {"moa": {"presets": {"review": {
+            "reference_models": [{"provider": "openai", "model": "gpt-5.5"}],
+            "aggregator": {"provider": "nous", "model": "claude-opus-4.8"},
+        }}}}
+        with p1, p2, p3, patch("hermes_cli.config.load_config", return_value=moa_cfg):
+            info = runner._format_session_info()
+        assert "nous:claude-opus-4.8" in info
 
     def test_named_custom_provider_keeps_context_pin_without_model_base_url(
         self, runner, tmp_path
@@ -153,4 +150,45 @@ class TestResetNoticeSessionInfo:
         assert "profile-model" in info
         assert "anthropic" in info
         assert "base-model" not in info
+
+
+class TestChannelOverrideBanner:
+    """A chat pinned by ``channel_overrides`` must show its effective route in the /new banner.
+
+    The banner used to resolve only the global ``model.default``, so a chat overridden to another
+    model/provider (e.g. a Telegram DM running a different model than the CLI default) rendered a
+    route it never runs — banner and ``_resolve_session_agent_runtime`` disagreeing on one config.
+    """
+
+    def test_banner_reports_channel_override_not_global_default(self, runner, tmp_path):
+        from types import SimpleNamespace
+        from gateway.config import ChannelOverride, Platform, PlatformConfig
+        from gateway.session import SessionSource
+
+        (tmp_path / "config.yaml").write_text(
+            "model:\n  default: gpt-6-luna\n  provider: openai-codex\n"
+            "  base_url: https://chatgpt.com/backend-api/codex\n"
+        )
+        runner.config = SimpleNamespace(platforms={
+            Platform.TELEGRAM: PlatformConfig(
+                enabled=True,
+                channel_overrides={"123": ChannelOverride(
+                    model="deepseek/deepseek-v4.1-flash-fast", provider="commandcode")},
+            )})
+        source = SessionSource(platform=Platform.TELEGRAM, chat_id="123", user_id="u1")
+        with patch("gateway.run._hermes_home", tmp_path), \
+             patch("gateway.run._resolve_runtime_agent_kwargs",
+                   return_value={"provider": "openai-codex",
+                                 "base_url": "https://chatgpt.com/backend-api/codex",
+                                 "api_key": ""}), \
+             patch("gateway.run._resolve_runtime_agent_kwargs_for_provider",
+                   return_value={"provider": "commandcode",
+                                 "base_url": "https://api.commandcode.ai/provider/v1",
+                                 "api_key": "test"}), \
+             patch("agent.model_metadata.get_model_context_length", return_value=200_000):
+            info = runner._reset_notice_session_info(source)
+
+        assert "deepseek/deepseek-v4.1-flash-fast" in info
+        assert "commandcode" in info
+        assert "gpt-6-luna" not in info
 

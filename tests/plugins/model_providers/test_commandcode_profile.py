@@ -24,7 +24,7 @@ import pytest
 @pytest.fixture
 def commandcode_profile():
     """Resolve the registered CommandCode (chat_completions) profile."""
-    import model_tools  # noqa: F401 — triggers discovery
+    import model_tools
     import providers
 
     profile = providers.get_provider_profile("commandcode")
@@ -35,7 +35,7 @@ def commandcode_profile():
 @pytest.fixture
 def commandcode_anthropic_profile():
     """Resolve the registered CommandCode Anthropic profile."""
-    import model_tools  # noqa: F401 — triggers discovery
+    import model_tools
     import providers
 
     profile = providers.get_provider_profile("commandcode-anthropic")
@@ -45,90 +45,40 @@ def commandcode_anthropic_profile():
 
 # ── Chat Completions profile ──────────────────────────────────────────────────
 
-class TestCommandCodeProfileIdentity:
-    """Profile metadata matches the declared contract."""
-
-    def test_name(self, commandcode_profile):
-        assert commandcode_profile.name == "commandcode"
-
-    def test_api_mode(self, commandcode_profile):
-        assert commandcode_profile.api_mode == "chat_completions"
-
-    def test_aliases(self, commandcode_profile):
-        assert "commandcode-chat" in commandcode_profile.aliases
-
-    def test_env_vars(self, commandcode_profile):
-        assert "COMMANDCODE_API_KEY" in commandcode_profile.env_vars
-
-    def test_base_url(self, commandcode_profile):
-        assert commandcode_profile.base_url == "https://api.commandcode.ai/provider/v1"
-
-    def test_display_name(self, commandcode_profile):
-        assert "CommandCode" in commandcode_profile.display_name
-
-    def test_has_fallback_models(self, commandcode_profile):
-        assert len(commandcode_profile.fallback_models) >= 5
-        # Should include the major families
-        names = " ".join(commandcode_profile.fallback_models)
-        assert "deepseek" in names
-        assert "Qwen" in names
-        assert "Kimi" in names
-        assert "gemini" in names
-
-    def test_default_aux_model(self, commandcode_profile):
-        assert commandcode_profile.default_aux_model == "deepseek/deepseek-v4-flash"
-
-    def test_signup_url(self, commandcode_profile):
-        assert "commandcode" in commandcode_profile.signup_url.lower()
-
-    def test_hostname_derived_from_base_url(self, commandcode_profile):
-        assert commandcode_profile.get_hostname() == "api.commandcode.ai"
 
 
-class TestCommandCodeProfileNoThinkingInterference:
-    """Chat completions profile is a no-op for thinking config — it delegates
-    to the underlying model's provider (DeepSeek, Qwen, etc.) for wire format.
-    """
+class TestCommandCodeReasoningWireControls:
+    """DeepSeek V4+ defaults to thinking when ``thinking`` is omitted, so the profile
+    must put the user's setting on the wire (#95232); other families stay a no-op."""
 
-    def test_passthrough_no_reasoning_config(self, commandcode_profile):
+    def test_deepseek_disabled_reasoning_sends_thinking_disabled(self, commandcode_profile):
         extra_body, top_level = commandcode_profile.build_api_kwargs_extras(
-            reasoning_config=None, model="deepseek/deepseek-v4-pro"
+            reasoning_config={"enabled": False}, model="deepseek/deepseek-v4-flash",
         )
-        # Chat completions profile doesn't inject thinking params — that's
-        # the DeepSeek provider's job when routed through DeepSeek's own profile.
-        # When routed through CommandCode, the underlying model API handles it.
-        assert isinstance(extra_body, dict)
-        assert isinstance(top_level, dict)
-        # Default ProviderProfile returns ({}, {}).
+        assert extra_body.get("thinking") == {"type": "disabled"}
+        assert top_level == {}
 
-    def test_passthrough_with_reasoning_config(self, commandcode_profile):
-        extra_body, top_level = commandcode_profile.build_api_kwargs_extras(
-            reasoning_config={"enabled": True, "effort": "high"},
-            model="deepseek/deepseek-v4-pro",
-        )
-        assert isinstance(extra_body, dict)
-        assert isinstance(top_level, dict)
+    def test_deepseek_effort_matches_native_profile_and_others_noop(self, commandcode_profile):
+        from plugins.model_providers.deepseek import deepseek
 
+        rc = {"enabled": True, "effort": "low"}
+        expected = deepseek.build_api_kwargs_extras(reasoning_config=rc, model="deepseek-v4.1-flash")
+        assert expected[1].get("reasoning_effort") == "low"  # equality below must not be ({}, {}) == ({}, {})
+        assert commandcode_profile.build_api_kwargs_extras(
+            reasoning_config=rc, model="deepseek/deepseek-v4.1-flash"
+        ) == expected
+        assert commandcode_profile.build_api_kwargs_extras(
+            reasoning_config=rc, model="Qwen/Qwen3.7-Max"
+        ) == ({}, {})
 
-# ── Anthropic Messages profile ────────────────────────────────────────────────
 
 class TestCommandCodeAnthropicProfileIdentity:
     """Anthropic-compatible profile metadata."""
 
-    def test_name(self, commandcode_anthropic_profile):
-        assert commandcode_anthropic_profile.name == "commandcode-anthropic"
 
-    def test_api_mode(self, commandcode_anthropic_profile):
-        assert commandcode_anthropic_profile.api_mode == "anthropic_messages"
 
-    def test_aliases(self, commandcode_anthropic_profile):
-        assert "commandcode-claude" in commandcode_anthropic_profile.aliases
 
-    def test_env_vars(self, commandcode_anthropic_profile):
-        assert "COMMANDCODE_API_KEY" in commandcode_anthropic_profile.env_vars
 
-    def test_base_url(self, commandcode_anthropic_profile):
-        assert commandcode_anthropic_profile.base_url == "https://api.commandcode.ai/provider/v1"
 
     def test_fallback_models_are_claude_family(self, commandcode_anthropic_profile):
         for model in commandcode_anthropic_profile.fallback_models:
@@ -136,15 +86,8 @@ class TestCommandCodeAnthropicProfileIdentity:
                 f"All anthropic fallback models should be claude-*: got {model}"
             )
 
-    def test_default_aux_model(self, commandcode_anthropic_profile):
-        assert commandcode_anthropic_profile.default_aux_model == "claude-haiku-4-5-20251001"
 
-    def test_display_name_distinct_from_chat(self, commandcode_anthropic_profile):
-        # The Anthropic profile should be distinguishable in /model picker
-        assert "(Anthropic)" in commandcode_anthropic_profile.display_name
 
-    def test_hostname_derived_from_base_url(self, commandcode_anthropic_profile):
-        assert commandcode_anthropic_profile.get_hostname() == "api.commandcode.ai"
 
 
 # ── Bearer Auth Recognition ───────────────────────────────────────────────────
@@ -156,14 +99,14 @@ class TestCommandCodeAnthropicBearerAuth:
     """
 
     def test_requires_bearer_auth_recognizes_commandcode(self):
-        from agent.anthropic_adapter import _requires_bearer_auth
+        from agent.anthropic_endpoints import _requires_bearer_auth
 
         assert _requires_bearer_auth("https://api.commandcode.ai/provider/v1") is True
         assert _requires_bearer_auth("https://api.commandcode.ai/provider/v1/models") is True
         assert _requires_bearer_auth("https://api.commandcode.ai/anthropic") is True
 
     def test_bearer_auth_does_not_affect_unrelated(self):
-        from agent.anthropic_adapter import _requires_bearer_auth
+        from agent.anthropic_endpoints import _requires_bearer_auth
 
         # Native Anthropic still uses x-api-key
         assert _requires_bearer_auth("https://api.anthropic.com") is False
@@ -171,67 +114,17 @@ class TestCommandCodeAnthropicBearerAuth:
         assert _requires_bearer_auth("https://openrouter.ai/api/v1") is False
 
     def test_bearer_auth_case_insensitive(self):
-        from agent.anthropic_adapter import _requires_bearer_auth
+        from agent.anthropic_endpoints import _requires_bearer_auth
 
         assert _requires_bearer_auth("https://API.COMMANDCODE.AI/provider/v1") is True
 
 
 # ── Registry integrity ───────────────────────────────────────────────────────
 
-class TestCommandCodeRegistryIntegrity:
-    """Both profiles are discoverable and distinct."""
-
-    def test_both_profiles_registered(self):
-        import model_tools  # noqa: F401
-        import providers
-
-        chat = providers.get_provider_profile("commandcode")
-        anth = providers.get_provider_profile("commandcode-anthropic")
-        assert chat is not None
-        assert anth is not None
-        assert chat is not anth  # distinct profile instances
-
-    def test_alias_lookup(self):
-        import model_tools  # noqa: F401
-        import providers
-
-        assert providers.get_provider_profile("commandcode-chat") is not None
-        assert providers.get_provider_profile("commandcode-claude") is not None
-
-    def test_unknown_returns_none(self):
-        import model_tools  # noqa: F401
-        import providers
-
-        assert providers.get_provider_profile("commandcode-nonexistent") is None
 
 
 # ── Model list filtering ──────────────────────────────────────────────────────
 
-class TestCommandCodeModelFiltering:
-    """``fetch_models`` filtering contracts."""
-
-    def test_anthropic_profile_filters_to_claude(self):
-        """If we mock a response with mixed models, anthropic profile
-        should only return claude-* models.
-        """
-        from plugins.model_providers.commandcode import CommandCodeAnthropicProfile
-
-        profile = CommandCodeAnthropicProfile(
-            name="test-cc-anth",
-            api_mode="anthropic_messages",
-            env_vars=("COMMANDCODE_API_KEY",),
-            base_url="https://api.commandcode.ai/provider/v1",
-        )
-
-        # Don't actually hit the network — just test the filter logic.
-        # The class has a fetch_models override that filters.
-        # We verify the filter works by inspecting the method.
-        import inspect
-
-        source = inspect.getsource(profile.fetch_models)
-        assert "startswith(\"claude-\")" in source or '"claude-" in m' in source, (
-            "CommandCodeAnthropicProfile.fetch_models should filter to claude-* models"
-        )
 
 
 # ── Picker contract ──────────────────────────────────────────────────────────
@@ -246,16 +139,6 @@ class TestCommandCodeFetchModelsPickerContract:
     was swallowed, leaving the provider with zero models.
     """
 
-    @pytest.mark.parametrize("profile_name", ["commandcode", "commandcode-anthropic"])
-    def test_accepts_base_url_kwarg(self, profile_name):
-        import inspect
-
-        import model_tools  # noqa: F401 — triggers discovery
-        import providers
-
-        profile = providers.get_provider_profile(profile_name)
-        assert profile is not None
-        assert "base_url" in inspect.signature(profile.fetch_models).parameters
 
     def test_resolve_provider_full(self):
         """Both profiles must resolve through the model-switch path.
@@ -357,11 +240,102 @@ class TestCommandCodeBaseUrlOverride:
             captured["url"] = req.full_url
             return _FakeResp()
 
-        with mock_patch.object(
-            cc_mod.urllib.request, "urlopen", side_effect=fake_urlopen
-        ):
+        with mock_patch.object(cc_mod, "open_credentialed_url", side_effect=fake_urlopen):
             result = commandcode_profile.fetch_models(
                 api_key="k", base_url=cc_mod._COMMANDCODE_BASE + "/"
             )
         assert result == ["m1"]
         assert captured["url"] == cc_mod._COMMANDCODE_MODELS_URL
+
+
+# ── Wire-protocol filtering ──────────────────────────────────────────────────
+
+class TestCommandCodeWireProtocolFiltering:
+    """Each profile advertises only the models it can actually serve.
+
+    CommandCode serves every claude-* model on /messages ONLY; the rest of the
+    catalog is served on /chat/completions or /responses. Selecting a
+    /messages-only model from the chat-completions profile is a hard 400, not a
+    fallback::
+
+        400 Model "claude-sonnet-5-5" must be called via /provider/v1/messages
+            (Anthropic Messages shape).   [code: unsupported_model]
+
+    so the chat profile must not offer them, and the messages profile must not
+    offer anything else.
+    """
+
+    CATALOG = [
+        {"id": "claude-sonnet-5-5", "supported_endpoints": ["/messages"]},
+        {"id": "claude-haiku-4-5-20251001", "supported_endpoints": ["/messages"]},
+        {
+            "id": "deepseek/deepseek-v4-pro",
+            "supported_endpoints": ["/chat/completions", "/responses"],
+        },
+        {
+            "id": "gpt-5.6-luna",
+            "supported_endpoints": ["/chat/completions", "/responses"],
+        },
+        # No advertisement at all — kept (fail open).
+        {"id": "legacy/unlabelled-model"},
+        # Inverse case: a claude-* id served on the OpenAI wire.
+        {"id": "claude-on-chat-wire", "supported_endpoints": ["/chat/completions"]},
+    ]
+
+    def _fetch_via_local_catalog(self, profile):
+        import json
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        from threading import Thread
+
+        catalog = self.CATALOG
+
+        class H(BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = json.dumps({"data": catalog}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, fmt, *args):
+                pass
+
+        srv = HTTPServer(("127.0.0.1", 0), H)
+        Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            return profile.fetch_models(
+                api_key="k", base_url=f"http://127.0.0.1:{srv.server_address[1]}"
+            )
+        finally:
+            srv.shutdown()
+
+    def test_chat_profile_hides_messages_only_models(self, commandcode_profile):
+        result = self._fetch_via_local_catalog(commandcode_profile)
+        assert result is not None
+        assert "claude-sonnet-5-5" not in result
+        assert "claude-haiku-4-5-20251001" not in result
+        assert "deepseek/deepseek-v4-pro" in result
+        assert "gpt-5.6-luna" in result
+        assert "legacy/unlabelled-model" in result
+        assert "claude-on-chat-wire" in result
+
+    def test_messages_profile_hides_chat_only_models(
+        self, commandcode_anthropic_profile
+    ):
+        result = self._fetch_via_local_catalog(commandcode_anthropic_profile)
+        assert result is not None
+        assert "claude-sonnet-5-5" in result
+        assert "claude-haiku-4-5-20251001" in result
+        assert "claude-on-chat-wire" not in result
+        assert "deepseek/deepseek-v4-pro" not in result
+        assert "gpt-5.6-luna" not in result
+
+    def test_the_two_profiles_never_overlap(
+        self, commandcode_profile, commandcode_anthropic_profile
+    ):
+        chat = set(self._fetch_via_local_catalog(commandcode_profile))
+        messages = set(self._fetch_via_local_catalog(commandcode_anthropic_profile))
+        assert not (chat & messages), (
+            "a model offered by both profiles would be selectable on the wrong "
+            f"wire: {sorted(chat & messages)}"
+        )

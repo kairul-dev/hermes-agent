@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from gateway.config import GatewayConfig, Platform, PlatformConfig
-from gateway.platforms.base import MessageEvent
+from gateway.platforms.event import MessageEvent
 from gateway.session import SessionEntry, SessionSource, build_session_key
 
 
@@ -61,7 +61,7 @@ def _make_runner():
     runner._session_db = None
     runner._agent_cache_lock = None  # disables _evict_cached_agent lock path
     runner._is_user_authorized = lambda _source: True
-    runner._format_session_info = lambda: ""
+    runner._format_session_info = lambda *a, **k: ""
 
     return runner
 

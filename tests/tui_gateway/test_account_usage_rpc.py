@@ -83,8 +83,6 @@ def test_runs_off_the_stdin_loop(panel):
 @pytest.fixture
 def profiles(tmp_path, monkeypatch):
     """A launch profile plus an ``ops`` profile whose token lives in its own .env."""
-    import hermes_cli.profiles as profiles_mod
-
     launch = tmp_path / "launch"
     ops = tmp_path / "profiles" / "ops"
     launch.mkdir(parents=True)
@@ -93,8 +91,17 @@ def profiles(tmp_path, monkeypatch):
 
     monkeypatch.setenv("ANTHROPIC_TOKEN", "launch-profile-token")
     monkeypatch.setattr(srv, "_hermes_home", launch)
-    monkeypatch.setattr(srv, "_profile_home", lambda name: ops if (name or "").strip() == "ops" else None)
-    monkeypatch.setattr(profiles_mod, "profile_exists", lambda name: name in {"default", "ops"})
+
+    def profile_home(name):
+        # Mirrors the real resolver: the launch profile is None, a named one is its home, an unknown one raises.
+        name = (name or "").strip()
+        if name in {"", "default"}:
+            return None
+        if name == "ops":
+            return ops
+        raise srv.ProfileUnavailableError(f"Profile '{name}' does not exist.")
+
+    monkeypatch.setattr(srv, "_profile_home", profile_home)
     return launch, ops
 
 

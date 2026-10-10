@@ -14,6 +14,7 @@ import pytest
 
 import agent.anthropic_credentials as ac
 import agent.credential_pool as cp
+import hermes_cli.auth as auth
 
 
 def _entry(**over):
@@ -29,20 +30,15 @@ def _entry(**over):
     return SimpleNamespace(**base)
 
 
-class _ReadOnlyPool:
-    """Exposes ONLY entries(): any mutating/rotating call would AttributeError."""
-
-    def __init__(self, entries):
-        self._entries = entries
-
-    def entries(self):
-        return list(self._entries)
-
-
 @pytest.fixture
 def pool(monkeypatch):
+    def forbidden_load(provider):
+        raise AssertionError("usage diagnostics must read persisted rows without loading the pool")
+
+    monkeypatch.setattr(cp, "load_pool", forbidden_load)
+
     def install(*entries):
-        monkeypatch.setattr(cp, "load_pool", lambda provider: _ReadOnlyPool(entries))
+        monkeypatch.setattr(auth, "read_credential_pool", lambda provider: [vars(entry) for entry in entries])
         monkeypatch.setattr(ac, "is_rotation_consumed_uncommitted", lambda *a, **k: False)
 
     return install
@@ -78,7 +74,7 @@ def test_a_pool_that_cannot_be_read_is_quietly_none(monkeypatch):
     def boom(provider):
         raise RuntimeError("auth store unreadable")
 
-    monkeypatch.setattr(cp, "load_pool", boom)
+    monkeypatch.setattr(auth, "read_credential_pool", boom)
     assert ac.resolve_anthropic_cooled_down_oauth_token() is None
 
 

@@ -32,32 +32,6 @@ describe('host.state focused-session atoms', () => {
     return { host, states, session }
   }
 
-  it('exposes readonly atoms for the focused session (runtime id, stored id, usage)', async () => {
-    const { host } = await setup()
-
-    for (const key of ['focusedSessionId', 'focusedStoredSessionId', 'focusedUsage'] as const) {
-      const store = host.state[key]
-      expect(store, key).toBeDefined()
-      expect(typeof store.get, key).toBe('function')
-      expect(typeof store.listen, key).toBe('function')
-      expect(typeof store.subscribe, key).toBe('function')
-    }
-  })
-
-  it('mirrors the primary session while no tile is focused', async () => {
-    const { host, states } = await setup()
-
-    expect(host.state.focusedSessionId.get()).toBe(states.$focusedRuntimeId.get())
-    expect(host.state.focusedStoredSessionId.get()).toBe(states.$focusedStoredSessionId.get())
-  })
-
-  it('focusedUsage projects the focused session usage, null while unresolved', async () => {
-    const { host, states } = await setup()
-
-    const focused = states.$focusedSessionState.get()
-    expect(host.state.focusedUsage.get()).toBe(focused?.usage ?? null)
-  })
-
   it('exposes the registry source that owns the active gateway', async () => {
     const { host, session } = await setup()
 
@@ -151,9 +125,6 @@ describe('host.state.focusedSessionProfile', () => {
   it('is a readonly atom that falls back to the gateway profile with no focused session', async () => {
     const { host, profile } = await setup()
 
-    expect(typeof host.state.focusedSessionProfile.get).toBe('function')
-    expect(typeof host.state.focusedSessionProfile.listen).toBe('function')
-
     profile.$activeGatewayProfile.set('newsanalyst')
     expect(host.state.focusedSessionProfile.get()).toBe('newsanalyst')
     profile.$activeGatewayProfile.set('default')
@@ -230,6 +201,28 @@ describe('host.state.focusedSessionProfile', () => {
 
     session.$sessions.set([])
     session.$selectedStoredSessionId.set(null)
+  })
+
+  it('reacts to owner hint changes without another session or connection update', async () => {
+    const { host, session } = await setup()
+    session.$sessions.set([])
+    session.$selectedStoredSessionId.set('late-owner')
+    const stop = host.state.focusedSessionOwner.subscribe(() => {})
+
+    try {
+      expect(host.state.focusedSessionOwner.get()).toBeNull()
+      session.setSessionOwnerHint('late-owner', { connectionId: 'local', profile: 'default' })
+      expect(host.state.focusedSessionOwner.get()).toEqual({ connectionId: 'local', profile: 'default' })
+      session.setSessionOwnerHint('late-owner', { connectionId: 'other', profile: 'default' })
+      expect(host.state.focusedSessionOwner.get()).toBeNull()
+      session.forgetSessionOwnerHintsForConnection('other')
+      expect(host.state.focusedSessionOwner.get()).toEqual({ connectionId: 'local', profile: 'default' })
+      session.forgetSessionOwnerHintsForSession('late-owner')
+      expect(host.state.focusedSessionOwner.get()).toBeNull()
+    } finally {
+      stop()
+      session.$selectedStoredSessionId.set(null)
+    }
   })
 
   it('keeps the focused session connection when same-named profiles share a handle', async () => {

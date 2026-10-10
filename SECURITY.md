@@ -275,11 +275,12 @@ private-disclosure channel and don't receive advisories.
   require pre-existing write access to operator-owned configuration
   or credential files (those are already inside the trust envelope).
 - **Documented break-glass settings.** Operator-selected trade-offs
-  that explicitly disable protections: `--insecure` and equivalent
-  flags on the dashboard or other components, disabled approvals,
+  that explicitly disable protections: disabled approvals,
   local backend in production, development profiles that bypass
   hermes-home security, and similar. Reports against those
   configurations are not vulnerabilities — that's the flag's job.
+  The dashboard's deprecated `--insecure` flag does not disable authentication
+  and is not a break-glass setting.
 - **Community-contributed skills and plugins.** Third-party skills
   (including the community skills repository) and third-party
   plugins are in the operator's review surface, not Hermes Agent's
