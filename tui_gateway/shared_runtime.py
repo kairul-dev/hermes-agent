@@ -75,7 +75,8 @@ _SHARED_NATIVE_MEMBER_METHODS = frozenset({
 })
 # Member methods that persist or read per-session state in a profile store AND accept a ``profile`` param that
 # ``_profile_scoped`` honors over the session's own home. An override naming any other profile would aim the
-# session's key at a different profile's store, so it must match the session's profile or be denied.
+# session's key at a different profile's store, so it must match the session's profile or be denied; once admitted
+# the override is removed from the request so the handler binds the session's own home.
 _SHARED_NATIVE_PROFILE_BOUND_METHODS = frozenset({"session.control.read", "session.control"})
 _SHARED_NATIVE_COLLECTION_METHODS = frozenset({"session.list", "session.active_list", "session.most_recent"})
 # Credential-free, session-aware reads exposed by the shared adapter. Without session_id these read
@@ -378,6 +379,12 @@ def _shared_native_admission_error(rid, method: str, params: dict) -> dict | Non
     denial = _shared_session_denial(current_transport(), session, require_membership=membership)
     if not denial and method in _SHARED_NATIVE_PROFILE_BOUND_METHODS:
         denial = _shared_profile_override_denial(session, params)
+        if not denial:
+            # Admitted: decide the profile once. Drop the override from THIS request's own params so the handler's
+            # ``_profile_scoped`` binds the admitted session's own ``profile_home`` and never re-resolves the name
+            # (a profile directory created between admission and handler, e.g. the ``hermes`` alias, could otherwise
+            # map the same name elsewhere). Idempotent; strict mode and these two methods only.
+            params.pop("profile", None)
     if denial:
         return _err(rid, ERR_SHARED_FORBIDDEN, f"shared runtime: {denial}")
     return None

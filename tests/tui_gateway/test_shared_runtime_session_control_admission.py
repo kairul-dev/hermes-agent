@@ -17,7 +17,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from hermes_constants import reset_hermes_home_override, set_hermes_home_override
+from hermes_constants import get_hermes_home, reset_hermes_home_override, set_hermes_home_override
 from tui_gateway import server
 from tui_gateway.transport import StdioTransport
 
@@ -102,17 +102,42 @@ def _call(transport, rpc_method, **params):
         server.reset_transport(token)
 
 
+class _Reached(list):
+    """Handler names reached after admission; ``params`` holds what each handler actually received."""
+
+    def __init__(self):
+        super().__init__()
+        self.params = []
+        self.between = None          # optional hook run after admission, immediately before the handler
+
+
 def _spy_handlers(monkeypatch):
-    reached = []
+    reached = _Reached()
     for name in (READ, ACT):
         original = server._methods[name]
 
         def spy(rid, params, _name=name, _original=original):
             reached.append(_name)
+            reached.params.append(dict(params))
+            if reached.between:
+                reached.between()
             return _original(rid, params)
 
         monkeypatch.setitem(server._methods, name, spy)
     return reached
+
+
+def _watch_bound_home(monkeypatch):
+    """Record the profile home the handler actually reads control state from."""
+    seen = []
+    original = server._load_goal_state
+
+    def watch(key):
+        seen.append(get_hermes_home().resolve())
+        return original(key)
+
+    monkeypatch.setattr(server, '_load_goal_state', watch)
+    return seen
 
 
 def _assert_unchanged(profiles, before):
@@ -266,3 +291,68 @@ def test_other_unclassified_session_methods_stay_denied(profiles):
         response = _call(profiles.member, rpc_method, session_id='A')
         assert response.get('error', {}).get('code') == 4403, (rpc_method, response)
         assert 'not classified' in response['error']['message']
+
+
+# ── the handler binds the ADMITTED session's own home; the override is never re-resolved ─────────
+
+
+@pytest.mark.parametrize('sid,own,profile', [('W', 'worker', 'worker'), ('A', 'launch', 'default')])
+def test_admitted_override_is_dropped_so_the_handler_binds_the_sessions_own_home(profiles, monkeypatch, sid, own, profile):
+    reached = _spy_handlers(monkeypatch)
+    bound = _watch_bound_home(monkeypatch)
+    response = _call(profiles.member, READ, session_id=sid, profile=profile)
+    assert 'error' not in response, response
+    assert reached == [READ] and 'profile' not in reached.params[0]      # request-local: the handler never sees the name
+    assert bound == [getattr(profiles, own).resolve()]
+
+
+@pytest.mark.parametrize('rpc_method,extra', [(READ, {}), (ACT, {'action': 'goal.pause'}), (ACT, {'action': 'heartbeat.pause'})])
+def test_hand_created_hermes_alias_cannot_redirect_an_admitted_request(profiles, monkeypatch, rpc_method, extra):
+    """``hermes`` canonicalizes to the launch profile unless a real ``profiles/hermes`` directory exists. Creating that
+    directory AFTER admission (no API can; reserved name) must not move the handler off the admitted session's home."""
+    alias = profiles.launch / 'profiles' / 'hermes'
+    reached = _spy_handlers(monkeypatch)
+    bound = _watch_bound_home(monkeypatch)
+    reached.between = lambda: (alias.mkdir(), _seed(alias, prompt='alias-profile work'))
+    launch_before = _state(profiles.launch)
+    response = _call(profiles.member, rpc_method, session_id='A', profile='hermes', **extra)
+    assert 'error' not in response, response
+    assert reached == [rpc_method] and 'profile' not in reached.params[0]
+    assert alias.is_dir()                                                # the race really happened after admission
+    assert set(bound) == {profiles.launch.resolve()}                     # ...and the handler still read the launch home
+    control = response['result']['control']
+    if rpc_method == READ:
+        assert control == launch_before and control['goal']['title'] == 'launch-profile work'
+    else:
+        changed = 'goal' if extra['action'].startswith('goal') else 'heartbeat'
+        assert control[changed]['status'] == 'paused' and _state(profiles.launch)[changed]['status'] == 'paused'
+    alias_state = _state(alias)
+    assert alias_state['goal']['title'] == 'alias-profile work'          # the alias profile was never read or written
+    assert alias_state['goal']['status'] == 'active' and alias_state['heartbeat']['status'] == 'active'
+    assert _state(profiles.worker)['goal']['status'] == 'active'
+
+
+def test_alias_directory_present_at_admission_is_denied_before_the_handler(profiles, monkeypatch):
+    alias = profiles.launch / 'profiles' / 'hermes'
+    alias.mkdir()
+    _seed(alias, prompt='alias-profile work')
+    reached = _spy_handlers(monkeypatch)
+    before = _snapshots(profiles) | {'alias': _state(alias)}
+    for rpc_method, extra in ((READ, {}), (ACT, {'action': 'goal.pause'})):
+        response = _call(profiles.member, rpc_method, session_id='A', profile='hermes', **extra)
+        assert response.get('error', {}).get('code') == 4403, response
+    assert reached == []
+    _assert_unchanged(profiles, before)
+    assert _state(alias) == before['alias']
+
+
+# ── ordinary mode is unchanged ───────────────────────────────────────────────────────────────────
+
+
+def test_ordinary_mode_does_not_touch_or_police_the_profile_param(profiles, monkeypatch):
+    (profiles.launch / 'config.yaml').write_text('dashboard:\n  shared_runtime:\n    enabled: false\n', encoding='utf-8')
+    reached = _spy_handlers(monkeypatch)
+    response = _call(_transport(), READ, session_id='A', profile='worker')       # historical behavior: honored as sent
+    assert 'error' not in response, response
+    assert reached.params == [{'session_id': 'A', 'profile': 'worker'}]
+    assert response['result']['control'] == _state(profiles.worker)
