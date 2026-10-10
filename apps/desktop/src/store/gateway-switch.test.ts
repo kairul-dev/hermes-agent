@@ -141,6 +141,32 @@ describe('wipeSessionListsForGatewaySwitch', () => {
     expect(transcriptTailState('recycled-id')?.possiblyTruncated).toBe(true)
   })
 
+  it('wipes the AI-usage panel and drops a reply still in flight from the old backend', async () => {
+    const { $accountUsage, refreshAccountUsage } = await import('@/store/account-usage')
+
+    let resolveOld!: (value: unknown) => void
+    const old = new Promise(resolve => (resolveOld = resolve))
+
+    const inFlight = refreshAccountUsage(() => old as never, { profile: 'default', scope: 'local|default' })
+
+    wipeSessionListsForGatewaySwitch()
+    resolveOld({ providers: [{ id: 'anthropic', label: 'Claude', stale: false, windows: [] }] })
+    await inFlight
+
+    expect($accountUsage.get()).toBeNull()
+
+    // Data already on screen is wiped too, not just late replies.
+    await refreshAccountUsage(() => Promise.resolve({ providers: [] }) as never, {
+      profile: 'default',
+      scope: 'local|default'
+    })
+    expect($accountUsage.get()).not.toBeNull()
+
+    wipeSessionListsForGatewaySwitch()
+
+    expect($accountUsage.get()).toBeNull()
+  })
+
   it('strands in-flight profile-list fetches so the old backend cannot repaint the rail (#85731)', () => {
     // The soft re-home moves /api/profiles routing to the NEW backend; a
     // response still in flight from the previous one must be invalidated

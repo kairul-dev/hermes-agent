@@ -639,12 +639,35 @@ def _prefer_refreshable_claude_code_token(env_token: str, creds: Optional[dict[s
     return None
 
 
+def _usable_oauth_pool_token(entry: Any) -> Optional[str]:
+    """The access token of an OAuth pool entry, or None when it is not usable.
+
+    Shared by the normal pool resolver and the read-only diagnostic resolvers, so every path applies the
+    same rotation-consumed guard."""
+    from agent.credential_pool import AUTH_TYPE_OAUTH
+
+    # access_token may be an explicit null on a persisted entry; None.strip() would crash the resolver.
+    token = (getattr(entry, "access_token", None) or "").strip()
+    if getattr(entry, "auth_type", None) != AUTH_TYPE_OAUTH or not token:
+        return None
+    # load_pool() re-seeds rows from the singleton files, so a spent-but-uncommitted rotation
+    # (possibly from another process) looks healthy here.
+    entry_source_path = spent_rotation_source_path(getattr(entry, "source", None))
+    if any(
+        is_rotation_consumed_uncommitted(secret, source_path=entry_source_path)
+        for secret in (token, getattr(entry, "refresh_token", None))
+    ):
+        logger.debug("Skipping Anthropic pool entry %s: rotated-but-uncommitted credential", getattr(entry, "id", "?"))
+        return None
+    return token
+
+
 def _resolve_anthropic_pool_token(*, skip_borrowed: bool = False) -> Optional[str]:
     """First available Anthropic OAuth token from credential_pool, read-only: enumerates with ``clear_expired=False,
     refresh=False`` (never ``select()``) so diagnostic call sites (account_usage, ``hermes models``) never mutate
     auth.json or hit the network; refresh-on-expiry belongs to the API call path's pool recovery."""
     try:
-        from agent.credential_pool import AUTH_TYPE_OAUTH, load_pool
+        from agent.credential_pool import load_pool
         entries, _pending = load_pool("anthropic")._available_entries(clear_expired=False, refresh=False)
     except Exception:
         logger.debug("Failed to read Anthropic credential_pool", exc_info=True)
@@ -652,20 +675,46 @@ def _resolve_anthropic_pool_token(*, skip_borrowed: bool = False) -> Optional[st
     for entry in entries:
         if skip_borrowed and entry.source == "claude_code":
             continue
-        # access_token may be an explicit null on a persisted entry; None.strip() would crash the resolver.
-        token = (getattr(entry, "access_token", None) or "").strip()
-        if getattr(entry, "auth_type", None) != AUTH_TYPE_OAUTH or not token:
+        token = _usable_oauth_pool_token(entry)
+        if token:
+            return token
+    return None
+
+
+def _stored_anthropic_pool_entries() -> list[Any]:
+    """Anthropic pool rows exactly as persisted: a pure read (``read_credential_pool``), never ``load_pool()``,
+    so no seeding, healing, cooldown clearing or any other write can happen on the way."""
+    from agent.credential_pool import PooledCredential
+    from hermes_cli.auth import read_credential_pool
+
+    return [
+        PooledCredential.from_dict("anthropic", payload)
+        for payload in read_credential_pool("anthropic")
+        if isinstance(payload, dict)
+    ]
+
+
+def resolve_anthropic_cooled_down_oauth_token() -> Optional[str]:
+    """Read-only: the OAuth token of a pool entry benched only by a quota cooldown.
+
+    ``resolve_anthropic_token()`` (via ``_available_entries``) deliberately skips entries in a 429/quota
+    cooldown, because chat must not route through them. A diagnostic reader such as the usage panel has the
+    opposite need: an account that just hit its limit is still a valid login, and "at its limit" is the state
+    it most wants to show. Only STATUS_EXHAUSTED entries qualify: DEAD entries (revoked / invalidated) are not
+    usable accounts. Never mutates the pool or the auth store and never refreshes."""
+    try:
+        from agent.credential_pool import STATUS_EXHAUSTED
+
+        entries = _stored_anthropic_pool_entries()
+    except Exception:
+        logger.debug("Failed to read Anthropic credential_pool for cooldown entries", exc_info=True)
+        return None
+    for entry in entries:
+        if getattr(entry, "last_status", None) != STATUS_EXHAUSTED:
             continue
-        # load_pool() re-seeds rows from the singleton files, so a spent-but-uncommitted rotation
-        # (possibly from another process) looks healthy here.
-        entry_source_path = spent_rotation_source_path(getattr(entry, "source", None))
-        if any(
-            is_rotation_consumed_uncommitted(secret, source_path=entry_source_path)
-            for secret in (token, getattr(entry, "refresh_token", None))
-        ):
-            logger.debug("Skipping Anthropic pool entry %s: rotated-but-uncommitted credential", getattr(entry, "id", "?"))
-            continue
-        return token
+        token = _usable_oauth_pool_token(entry)
+        if token:
+            return token
     return None
 
 

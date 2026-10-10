@@ -3,6 +3,7 @@ import { atom } from 'nanostores'
 import { resetLiveRuntimeTracking } from '@/app/contrib/hooks/use-background-sync'
 import { resetSidebarBatchCapability } from '@/hermes'
 import { invalidateProfileScopedQueries } from '@/lib/query-client'
+import { resetAccountUsage } from '@/store/account-usage'
 import { clearArtifactRegistry } from '@/store/artifacts'
 import { invalidateCronJobsRequests, setCronJobs } from '@/store/cron'
 import { resetDeadSessionPrune } from '@/store/dead-session-prune'
@@ -214,6 +215,10 @@ export function wipeSessionListsForGatewaySwitch(): void {
   setCronSessions([])
   invalidateCronJobsRequests()
   setCronJobs([])
+  // Subscription limits are the OUTGOING backend's accounts. Wipe them and
+  // strand any in-flight reply, or the old account's numbers stay on screen
+  // (and a late reply can repaint them) through a slow reconnect.
+  resetAccountUsage()
   setMessagingSessions([])
   setMessagingListServer(null)
   setMessagingPlatformTotals({})

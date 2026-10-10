@@ -2,15 +2,26 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import httpx
 
-from agent.anthropic_credentials import _is_oauth_token, resolve_anthropic_token
-from hermes_cli.auth import AuthError, _read_codex_tokens, resolve_codex_runtime_credentials
-from hermes_cli.auth_codex import _codex_pool_route_base_url
+from agent.anthropic_credentials import (
+    _is_oauth_token,
+    resolve_anthropic_cooled_down_oauth_token,
+    resolve_anthropic_token,
+)
+from hermes_cli.auth import (
+    AuthError,
+    _codex_pool_rate_limit_status,
+    _read_codex_tokens,
+    resolve_codex_runtime_credentials,
+)
+from hermes_cli.auth_codex import _codex_pool_route_base_url, _pool_codex_credential
 from hermes_cli.runtime_provider import resolve_runtime_provider
 from hermes_time import safe_strftime
 
@@ -36,6 +47,9 @@ class AccountUsageWindow:
     # ``model``: the window caps only one model family (Anthropic Opus/Sonnet weekly) and can
     # never imply the account itself is out of quota.
     scope: str = "account"
+    # Stable window identity for UIs ("five_hour" | "weekly"); ``label`` is provider copy and must
+    # not be string-matched. None = a window with no 5-hour/weekly slot (e.g. a model-scoped cap).
+    kind: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -369,10 +383,17 @@ def _resolve_codex_usage_credentials(
     # Tier 3: pool credentials have no account_id concept → header omitted.
     from agent.credential_pool import load_pool
     entry = load_pool("openai-codex").select()
-    if entry is None:
-        raise RuntimeError("No available openai-codex credential in credential pool")
-    # Pool rows keep the canonical URL; a gateway key must go to its route host, not chatgpt.com (#121486).
-    return entry.runtime_api_key, _codex_pool_route_base_url(entry.runtime_base_url or base_url), None
+    if entry is not None:
+        # Pool rows keep the canonical URL; a gateway key must go to its route host, not chatgpt.com (#121486).
+        return entry.runtime_api_key, _codex_pool_route_base_url(entry.runtime_base_url or base_url), None
+    # Tier 4: every pool entry is in a 429 quota cooldown, so ``select()`` skips them and the runtime resolver
+    # refuses to hand them out for chat — but the login is still valid and the usage endpoint answers for it.
+    # This is the state where the numbers matter most (the account is at its limit), so report them rather
+    # than "no credentials". Chat routing is untouched: only quota diagnostics read the cooled-down token.
+    limited = _codex_pool_rate_limit_status()
+    if limited and limited.get("access_token"):
+        return limited["access_token"], _codex_pool_route_base_url(limited.get("base_url") or base_url), None
+    raise RuntimeError("No available openai-codex credential in credential pool")
 
 
 def _codex_banked_resets(payload: dict) -> int:
@@ -395,11 +416,12 @@ def _get_json(url: str, headers: dict[str, str], *, timeout: float) -> dict:
 
 
 def _usage_windows(
-    source: dict, mapping: tuple[tuple[str, str], ...], used_key: str, reset_key: str, *, fraction: bool = False,
-    model_scoped: frozenset[str] | set[str] = frozenset(),
+    source: dict, mapping: tuple[tuple[str, str], ...], used_key: str, reset_key: str, *,
+    model_scoped: frozenset[str] | set[str] = frozenset(), kinds: Optional[dict[str, str]] = None,
 ) -> list[AccountUsageWindow]:
-    """Build windows from ``source[key][used_key]``; ``fraction`` scales values <= 1 to percent.
-    ``model_scoped`` keys build windows that cap only a model family, never the account."""
+    """Build windows from ``source[key][used_key]`` (already a 0-100 percentage; never rescaled).
+    ``model_scoped`` keys build windows that cap only a model family, never the account.
+    ``kinds`` maps a source key to its stable window identity (``AccountUsageWindow.kind``)."""
     windows: list[AccountUsageWindow] = []
     for key, label in mapping:
         window = source.get(key) or {}
@@ -407,17 +429,17 @@ def _usage_windows(
         if used is None:
             continue
         used = float(used)
-        if fraction and used <= 1:
-            used *= 100
         windows.append(AccountUsageWindow(
             label=label, used_percent=used, reset_at=_parse_dt(window.get(reset_key)),
             scope="model" if key in model_scoped else "account",
+            kind=(kinds or {}).get(key),
         ))
     return windows
 
 
 # Published Codex quota windows by ``limit_window_seconds``: 5h session and 7-day weekly.
 _CODEX_WINDOW_LABELS_BY_SECONDS = {18000: "Session", 604800: "Weekly"}
+_CODEX_KIND_BY_LABEL = {"Session": "five_hour", "Weekly": "weekly"}
 _CODEX_WINDOW_POSITIONAL_LABELS = (("primary_window", "Session"), ("secondary_window", "Weekly"))
 
 
@@ -479,7 +501,10 @@ def _fetch_codex_account_usage_impl(
             _codex_backend_urls(resolved_base_url)[0], _codex_headers(token, account_id), timeout=15.0,
         )
     rate_limit = payload.get("rate_limit") or {}
-    windows = _usage_windows(rate_limit, _codex_window_labels(rate_limit), "used_percent", "reset_at")
+    codex_labels = _codex_window_labels(rate_limit)
+    # Window identity follows the duration-derived label (#65387), never response position.
+    codex_kinds = {key: _CODEX_KIND_BY_LABEL[label] for key, label in codex_labels if label in _CODEX_KIND_BY_LABEL}
+    windows = _usage_windows(rate_limit, codex_labels, "used_percent", "reset_at", kinds=codex_kinds)
     details: list[str] = []
     count = _codex_banked_resets(payload)
     if count > 0:
@@ -637,6 +662,10 @@ def _fetch_anthropic_account_usage(
     # 401, so only an OAuth-shaped token reaches the fetch.
     explicit = str(api_key or "").strip()
     token = explicit or (resolve_anthropic_token() or "").strip()
+    if not token and not explicit:
+        # A pool-only OAuth login benched by a 429 quota cooldown is skipped by the chat resolver but is
+        # still a valid account, and "at its limit" is what usage diagnostics most need to show.
+        token = (resolve_anthropic_cooled_down_oauth_token() or "").strip()
     if not token:
         return None
     if not _is_oauth_token(token):
@@ -645,10 +674,14 @@ def _fetch_anthropic_account_usage(
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json", "Content-Type": "application/json",
                "anthropic-beta": "oauth-2025-04-20", "User-Agent": "claude-code/2.1.0"}
     payload = _get_json("https://api.anthropic.com/api/oauth/usage", headers, timeout=15.0)
+    # ``utilization`` is already a 0-100 percentage (community-documented; the endpoint is not publicly
+    # specified). Never rescale values <= 1: a fresh window legitimately reports 0.4 or 1.0 (%), and
+    # treating those as fractions shows 40% / 100% (critical) right after a reset.
     windows = _usage_windows(
         payload, (("five_hour", "Current session"), ("seven_day", "Current week"), ("seven_day_opus", "Opus week"),
-                  ("seven_day_sonnet", "Sonnet week")), "utilization", "resets_at", fraction=True,
+                  ("seven_day_sonnet", "Sonnet week")), "utilization", "resets_at",
         model_scoped={"seven_day_opus", "seven_day_sonnet"},
+        kinds={"five_hour": "five_hour", "seven_day": "weekly"},
     )
     details: list[str] = []
     extra = payload.get("extra_usage") or {}
@@ -760,3 +793,192 @@ def fetch_account_usage(
     remember_account_usage(provider, snapshot, identity_id=identity_id, base_url=base_url,
                            started_monotonic=started)
     return snapshot
+
+
+# ── Sidebar usage panel (desktop) ────────────────────────────────────────────
+# One structured payload for the two subscription-limit providers the panel
+# shows side by side, independent of whichever provider the session is on.
+# ``fetch_account_usage`` fails open per provider, so a provider the user has
+# no credentials for simply doesn't appear.
+
+PANEL_PROVIDERS: tuple[tuple[str, str], ...] = (
+    ("openai-codex", "Codex"),
+    ("anthropic", "Claude"),
+)
+_PANEL_WINDOW_KINDS = ("five_hour", "weekly")
+_PANEL_TTL_S = 60.0
+# How long last-known numbers may be shown after refreshes start failing. Bounds
+# the cases a credential probe cannot see (e.g. a revoked-but-well-formed OAuth
+# token): the account then drops out instead of lingering as "stale" forever.
+_PANEL_STALE_MAX_S = 30 * 60.0
+_PANEL_FETCH_TIMEOUT_S = 12.0
+
+_panel_lock = threading.Lock()
+# One fetch at a time per (home, provider). Without it an older in-flight fetch
+# can finish after a newer one and write the previous account back over it (a
+# forced refresh overlapping an automatic one, or two clients), and that stale
+# answer is then served from cache for the whole TTL.
+_panel_key_locks: dict[tuple[str, str], threading.Lock] = {}
+# (home, provider) -> monotonic time the last fetch ATTEMPT finished (success or
+# failure), so a caller that waited on the key lock can share that outcome.
+_panel_last_attempt: dict[tuple[str, str], float] = {}
+# (hermes_home, provider) -> (monotonic fetched-at, payload). Keyed by home so a
+# secondary profile never reads the default profile's account.
+_panel_cache: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
+
+
+def _panel_entry(provider: str, label: str, snapshot: Optional[AccountUsageSnapshot]) -> Optional[dict[str, Any]]:
+    if snapshot is None or snapshot.unavailable_reason:
+        return None
+    windows = []
+    for kind in _PANEL_WINDOW_KINDS:
+        window = next((w for w in snapshot.windows if w.kind == kind and w.used_percent is not None), None)
+        if window is None:
+            continue
+        windows.append(
+            {
+                "kind": kind,
+                "used_percent": max(0.0, min(100.0, float(window.used_percent))),
+                "reset_at": window.reset_at.isoformat() if window.reset_at else None,
+            }
+        )
+    if not windows:
+        return None
+    return {
+        "id": provider,
+        "label": label,
+        "plan": snapshot.plan,
+        "fetched_at": snapshot.fetched_at.isoformat(),
+        "stale": False,
+        "windows": windows,
+    }
+
+
+def _panel_has_credentials(provider: str) -> bool:
+    """Whether ``provider`` still has usable credentials in the current home.
+
+    Only consulted after a failed fetch. When the answer can't be determined
+    (an unexpected error) it reports True: keeping stale numbers is the safer
+    error than hiding a live account.
+    """
+    try:
+        if provider == "openai-codex":
+            # "Signed in" means a Codex login is stored, NOT that the runtime
+            # resolver would hand it out right now: a pool entry in a 429 quota
+            # cooldown is refused by the resolver yet is still a valid account
+            # (the state where the panel matters most).
+            try:
+                _read_codex_tokens()
+                return True
+            except AuthError as exc:
+                if not getattr(exc, "relogin_required", False):
+                    return True  # not a sign-out (e.g. rate-limited / transient)
+            return bool(_pool_codex_credential()[0] or _codex_pool_rate_limit_status())
+        if provider == "anthropic":
+            # Only an OAuth login can serve the usage API: a plain API key
+            # (what a user who switched away from OAuth has) is "no account".
+            token = (resolve_anthropic_token() or "").strip()
+            if token:
+                return _is_oauth_token(token)
+            # Nothing resolvable for chat: a quota-cooled OAuth login still counts.
+            return bool(resolve_anthropic_cooled_down_oauth_token())
+    except (AuthError, RuntimeError):
+        return False
+    except Exception:
+        logger.debug("account usage ▸ credential probe failed for %s", provider, exc_info=True)
+    return True
+
+
+def _fetch_panel_entry(provider: str, label: str, home: str, refresh: bool) -> Optional[dict[str, Any]]:
+    key = (home, provider)
+    asked_at = time.monotonic()
+    with _panel_lock:
+        key_lock = _panel_key_locks.setdefault(key, threading.Lock())
+    with key_lock:
+        return _fetch_panel_entry_locked(provider, label, key, asked_at, refresh)
+
+
+def _fetch_panel_entry_locked(
+    provider: str, label: str, key: tuple[str, str], asked_at: float, refresh: bool
+) -> Optional[dict[str, Any]]:
+    from agent.deadline import run_bounded_sync
+
+    with _panel_lock:
+        cached = _panel_cache.get(key)
+        last_attempt = _panel_last_attempt.get(key, 0.0)
+
+    if not refresh:
+        # An ordinary call may share whatever a concurrent call just settled
+        # (including a failure) rather than queueing a duplicate fetch. A forced
+        # refresh never does: it was asked AFTER the in-flight fetch began, so
+        # taking that fetch's answer could hand back the old account.
+        if last_attempt >= asked_at:
+            return cached[1] if cached else None
+        if cached and time.monotonic() - cached[0] < _PANEL_TTL_S:
+            return cached[1]
+
+    entry: Optional[dict[str, Any]] = None
+    try:
+        result = run_bounded_sync(
+            lambda: fetch_account_usage(provider),
+            _PANEL_FETCH_TIMEOUT_S,
+            label=f"account-usage-{provider}",
+        )
+        if not result.timed_out:
+            entry = _panel_entry(provider, label, result.value)
+    except Exception:
+        logger.debug("account usage ▸ panel fetch failed for %s (fail-open)", provider, exc_info=True)
+
+    try:
+        if entry is not None:
+            with _panel_lock:
+                _panel_cache[key] = (time.monotonic(), entry)
+            return entry
+        if cached is None:
+            return None
+        # ``fetch_account_usage`` answers None for BOTH "no credentials" and a
+        # failed fetch. Signed out / removed credentials must drop the provider
+        # (the panel promises only usable accounts appear); only a genuine
+        # transient failure (network, timeout, token mid-refresh) keeps the last
+        # good numbers, honestly marked stale, instead of blanking the panel.
+        expired = time.monotonic() - cached[0] > _PANEL_STALE_MAX_S
+        if expired or not _panel_has_credentials(provider):
+            with _panel_lock:
+                _panel_cache.pop(key, None)
+            return None
+        degraded = {**cached[1], "stale": True}
+        with _panel_lock:
+            # Keep the ORIGINAL fetch time (the stale-age cap measures from the
+            # last good fetch) but store the degraded copy: a cache hit inside
+            # the TTL must not republish the old numbers as fresh.
+            _panel_cache[key] = (cached[0], degraded)
+        return degraded
+    finally:
+        with _panel_lock:
+            _panel_last_attempt[key] = time.monotonic()
+
+
+def build_account_usage_panel(*, refresh: bool = False) -> list[dict[str, Any]]:
+    """Subscription-limit windows (5-hour + weekly) for every panel provider.
+
+    Both providers are fetched concurrently and cached for ``_PANEL_TTL_S``
+    per profile home; ``refresh=True`` bypasses the cache. Returns only the
+    providers that produced data, in ``PANEL_PROVIDERS`` order.
+    """
+    import contextvars
+    from concurrent.futures import ThreadPoolExecutor
+
+    from hermes_constants import get_hermes_home
+
+    home = str(get_hermes_home())
+    with ThreadPoolExecutor(max_workers=len(PANEL_PROVIDERS)) as pool:
+        # ``submit`` does not carry ContextVars: without a per-task copy the
+        # profile's HERMES_HOME override (set by the RPC's profile scope) is
+        # lost and the fetch would read the launch profile's credentials while
+        # the result is cached under the requested profile's key.
+        futures = [
+            pool.submit(contextvars.copy_context().run, _fetch_panel_entry, provider, label, home, refresh)
+            for provider, label in PANEL_PROVIDERS
+        ]
+        entries = [future.result() for future in futures]
+    return [entry for entry in entries if entry is not None]

@@ -7,6 +7,24 @@
   },
   "methods": [
     {
+      "name": "account.usage",
+      "summary": "Codex / Claude subscription-limit windows (5-hour + weekly) for the sidebar usage panel; cached 60 s per profile, ``refresh`` bypasses it; only providers with usable credentials appear.",
+      "params": [
+        {
+          "name": "params",
+          "schema": {
+            "$ref": "#/components/schemas/AccountUsageParams"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/AccountUsageResult"
+        }
+      }
+    },
+    {
       "name": "agents.list",
       "summary": "Registry-wide background process summary for ``/agents``.",
       "params": [
@@ -4738,6 +4756,138 @@
           "type"
         ],
         "title": "AccountOwner",
+        "type": "object"
+      },
+      "AccountUsageParams": {
+        "additionalProperties": false,
+        "properties": {
+          "profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile"
+          },
+          "refresh": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Refresh"
+          }
+        },
+        "title": "AccountUsageParams",
+        "type": "object"
+      },
+      "AccountUsageProvider": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Plan"
+          },
+          "fetched_at": {
+            "title": "Fetched At",
+            "type": "string"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "windows": {
+            "items": {
+              "$ref": "#/components/schemas/AccountUsageWindow"
+            },
+            "title": "Windows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "fetched_at",
+          "stale",
+          "windows"
+        ],
+        "title": "AccountUsageProvider",
+        "type": "object"
+      },
+      "AccountUsageResult": {
+        "additionalProperties": false,
+        "properties": {
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/AccountUsageProvider"
+            },
+            "title": "Providers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "providers"
+        ],
+        "title": "AccountUsageResult",
+        "type": "object"
+      },
+      "AccountUsageWindow": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "five_hour",
+              "weekly"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "used_percent": {
+            "title": "Used Percent",
+            "type": "number"
+          },
+          "reset_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reset At"
+          }
+        },
+        "required": [
+          "kind",
+          "used_percent"
+        ],
+        "title": "AccountUsageWindow",
         "type": "object"
       },
       "ActiveIdResult": {

@@ -3495,6 +3495,26 @@ export interface SessionUsageResult {
   credits_lines?: string[] | null
   [key: string]: unknown
 }
+export interface AccountUsageParams {
+  profile?: string | null
+  refresh?: boolean | null
+}
+export interface AccountUsageResult {
+  providers: AccountUsageProvider[]
+}
+export interface AccountUsageProvider {
+  id: string
+  label: string
+  plan?: string | null
+  fetched_at: string
+  stale: boolean
+  windows: AccountUsageWindow[]
+}
+export interface AccountUsageWindow {
+  kind: 'five_hour' | 'weekly'
+  used_percent: number
+  reset_at?: string | null
+}
 export interface SessionContextBreakdownParams {
   session_id: string
   profile?: string | null
@@ -5096,6 +5116,8 @@ export type ConnectorErrorReason = 'INVALID_PARAMS' | 'NOT_OWNER' | 'UNSUPPORTED
 
 // ── Client→server methods ──
 export interface RpcMethods {
+  /** Codex / Claude subscription-limit windows (5-hour + weekly) for the sidebar usage panel; cached 60 s per profile, ``refresh`` bypasses it; only providers with usable credentials appear. */
+  'account.usage': { params: AccountUsageParams; result: AccountUsageResult }
   /** Registry-wide background process summary for ``/agents``. */
   'agents.list': { params: AgentsListParams; result: AgentsListResult }
   /** Replay the approvals still waiting on this session (reconnect / polling). */
@@ -5616,6 +5638,7 @@ export interface RpcMethods {
 }
 export type RpcMethod = keyof RpcMethods
 export const RPC_METHODS = [
+  'account.usage',
   'agents.list',
   'approval.pending',
   'approval.received',

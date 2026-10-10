@@ -6,6 +6,8 @@ listing/browsing stored rows, spawn-tree snapshots, event replay and the statele
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import Field
 
 from .base import JsonValue, Params, Result, WireEnum
@@ -517,6 +519,34 @@ class SessionUsageResult(Usage):
 
 method("session.usage", params=SessionUsageParams, result=SessionUsageResult,
        doc="Token / context / cost counters for the session (+ Nous credit lines when available).")
+
+
+class AccountUsageParams(ProfileParams):
+    refresh: bool | None = None
+
+
+class AccountUsageWindow(Result):
+    kind: Literal["five_hour", "weekly"]
+    used_percent: float
+    reset_at: str | None = None
+
+
+class AccountUsageProvider(Result):
+    id: str
+    label: str
+    plan: str | None = None
+    fetched_at: str
+    stale: bool
+    windows: list[AccountUsageWindow]
+
+
+class AccountUsageResult(Result):
+    providers: list[AccountUsageProvider]
+
+
+method("account.usage", params=AccountUsageParams, result=AccountUsageResult,
+       doc="Codex / Claude subscription-limit windows (5-hour + weekly) for the sidebar usage panel; "
+           "cached 60 s per profile, ``refresh`` bypasses it; only providers with usable credentials appear.")
 
 
 class SessionContextBreakdownParams(SessionParams):

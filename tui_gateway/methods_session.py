@@ -1623,6 +1623,30 @@ def _account_usage_lines(session: dict) -> list[str]:
     return render_account_usage_lines(snapshot)
 
 
+@method("account.usage")
+def _(rid, params: dict) -> dict:
+    """Subscription-limit windows (5-hour + weekly) for the sidebar usage panel.
+
+    Account-level, not session-level: independent of the focused session and of which provider it is on.
+    Returns ``{"providers": [...]}`` with only the providers that have usable credentials; ``refresh: true``
+    bypasses the 60 s per-profile cache. ``profile`` selects whose accounts to read: the profile's full runtime
+    scope (HERMES_HOME + secrets, the same composition a turn binds) is bound around the read, so Codex logins in
+    its auth.json and a Claude token in its ``.env`` are read as that profile and never fall back to the launch
+    profile's. Fail-open: any error — including a profile this host does not know, which must never be answered
+    with the launch profile's account — yields an empty list so the panel just stays hidden.
+    """
+    try:
+        from agent.account_usage import build_account_usage_panel
+
+        home = _profile_home(str(params.get("profile") or "").strip())  # raises for an unknown profile
+        with _session_profile_runtime_scope({"profile_home": str(home) if home else None}):
+            providers = build_account_usage_panel(refresh=bool(params.get("refresh")))
+        return _ok(rid, {"providers": providers})
+    except Exception:
+        logger.debug("account.usage failed (fail-open)", exc_info=True)
+        return _ok(rid, {"providers": []})
+
+
 @_session_method("session.context_breakdown")
 def _(rid, params: dict, session: dict) -> dict:
     if (agent := session.get("agent")) is None:

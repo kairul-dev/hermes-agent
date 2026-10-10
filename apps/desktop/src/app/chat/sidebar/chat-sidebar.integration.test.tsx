@@ -7,9 +7,11 @@ import { group, split } from '@/components/pane-shell/tree/model'
 import { $layoutTree, noteActiveTreeGroup } from '@/components/pane-shell/tree/store'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { registry } from '@/contrib/registry'
+import { $accountUsage, resetAccountUsage } from '@/store/account-usage'
 import { $connectionsRegistry } from '@/store/connection-registry-state'
+import { $activeConnectionId } from '@/store/connections'
 import { $sidebarMessagingOpenIds, setSidebarAgentsGrouped, setSidebarGrouping } from '@/store/layout'
-import { $activeGatewayProfile, $profiles, setShowAllProfiles } from '@/store/profile'
+import { $activeGatewayProfile, $profiles, normalizeProfileKey, setShowAllProfiles } from '@/store/profile'
 import { $profileRailVisible } from '@/store/profile-rail-prefs'
 import { $projectScope, ALL_PROJECTS } from '@/store/project-scope'
 import { $projectTree } from '@/store/projects'
@@ -119,22 +121,39 @@ describe('ChatSidebar navigation activity', () => {
     noteActiveTreeGroup(null)
   })
 
-  it('places subscription usage outside the scrolling sessions and above the profile rail', () => {
+  it('places AI usage outside the scrolling sessions and above the profile rail', () => {
     const wasVisible = $profileRailVisible.get()
     $profileRailVisible.set(true)
+    // The panel renders nothing until the active scope holds data.
+    $accountUsage.set({
+      providers: [
+        {
+          id: 'anthropic',
+          label: 'Claude',
+          stale: false,
+          windows: [{ kind: 'five_hour', reset_at: null, used_percent: 40 }]
+        }
+      ],
+      receivedAt: Date.now(),
+      scope: `${$activeConnectionId.get() ?? ''}|${normalizeProfileKey($activeGatewayProfile.get())}`
+    })
     renderSidebar('/kanban', 'extension')
     $profileRailVisible.set(wasVisible)
-    const panel = screen.getByRole('region', { name: 'Subscription usage' })
+    const panel = screen.getByRole('region', { name: 'AI usage' })
     const content = panel.closest('[data-sidebar="content"]')!
 
-    expect(panel.parentElement).toBe(content)
-    expect(panel.previousElementSibling).not.toBeNull()
+    // Mounted in its own wrapper directly under the sidebar content, not inside the scrolling sessions.
+    expect(panel.parentElement?.parentElement).toBe(content)
+    expect(panel.parentElement?.previousElementSibling).not.toBeNull()
     const rail = content.querySelector('[data-slot="profile-rail"]')
 
     expect(rail).not.toBeNull()
-    expect(panel.nextElementSibling?.contains(rail)).toBe(true)
+    expect(panel.parentElement?.nextElementSibling?.contains(rail)).toBe(true)
     expect(panel.closest('[data-slot="sidebar"]')).not.toBeNull()
     expect(panel.querySelector('[data-sidebar="menu"]')).toBeNull()
+    // Exactly one usage panel: the previous subscription card is gone.
+    expect(screen.queryAllByRole('region', { name: /usage/i })).toHaveLength(1)
+    resetAccountUsage()
   })
 
   it('keeps navigation and session activity coherent with the focused pane', () => {

@@ -239,6 +239,10 @@
     --ui-base: var(--theme-foreground);
     --ui-accent: var(--theme-midground);
     --ui-accent-secondary: var(--theme-primary);
+    /* Provider identity hues for the sidebar AI-usage panel — brand data, so
+       they hold across themes rather than following --ui-accent. */
+    --usage-codex: #3b9cff;
+    --usage-claude: #e8845f;
     --ui-warm: var(--theme-warm);
     --ui-red: #cf2d56;
     --ui-orange: #db704b;
