@@ -726,6 +726,46 @@ def _prefer_refreshable_claude_code_token(env_token: str, creds: Optional[Dict[s
     return None
 
 
+def _usable_oauth_pool_token(entry: Any) -> Optional[str]:
+    """The access token of an OAuth pool entry, or None when it is not usable.
+
+    Shared by the normal pool resolver and the read-only diagnostic resolver for
+    cooled-down entries, so both apply the same rotation-consumed guard.
+    """
+    from agent.credential_pool import AUTH_TYPE_OAUTH
+
+    if getattr(entry, "auth_type", None) != AUTH_TYPE_OAUTH:
+        return None
+    # access_token is a declared field but a persisted entry can carry an
+    # explicit null (or a partially-written OAuth entry), so coerce before
+    # strip — a bare None.strip() would crash the whole resolver and take
+    # down the source #5 fallback with it.
+    # Matches the aux-client analog (auxiliary_client.py: str(key or "")).
+    token = (getattr(entry, "access_token", None) or "").strip()
+    if not token:
+        return None
+    # ``load_pool()`` re-seeds pool rows from the singleton files, so a
+    # rotation that was consumed upstream but never committed comes back
+    # here looking healthy.  Enumeration is deliberately read-only
+    # (refresh=False), which means nothing on this path would otherwise
+    # notice that the credential is spent.  Singleton-backed sources also
+    # consult the durable sidecar registry: the failed commit may have
+    # happened in a DIFFERENT process, whose process-local verdict this
+    # interpreter never saw.
+    entry_source_path = spent_rotation_source_path(getattr(entry, "source", None))
+    if is_rotation_consumed_uncommitted(
+        token, source_path=entry_source_path
+    ) or is_rotation_consumed_uncommitted(
+        getattr(entry, "refresh_token", None), source_path=entry_source_path
+    ):
+        logger.debug(
+            "Skipping Anthropic pool entry %s: rotated-but-uncommitted credential",
+            getattr(entry, "id", "?"),
+        )
+        return None
+    return token
+
+
 def _resolve_anthropic_pool_token() -> Optional[str]:
     """Return the first available Anthropic OAuth token from credential_pool.
 
@@ -736,7 +776,7 @@ def _resolve_anthropic_pool_token() -> Optional[str]:
     path's pool recovery, not the resolver.
     """
     try:
-        from agent.credential_pool import AUTH_TYPE_OAUTH, load_pool
+        from agent.credential_pool import load_pool
     except Exception:
         return None
 
@@ -752,37 +792,38 @@ def _resolve_anthropic_pool_token() -> Optional[str]:
         return None
 
     for entry in entries:
-        if getattr(entry, "auth_type", None) != AUTH_TYPE_OAUTH:
-            continue
-        # access_token is a declared field but a persisted entry can carry an
-        # explicit null (or a partially-written OAuth entry), so coerce before
-        # strip — a bare None.strip() here would escape the try/excepts above
-        # and crash the whole resolver, taking down the source #5 fallback too.
-        # Matches the aux-client analog (auxiliary_client.py: str(key or "")).
-        token = (getattr(entry, "access_token", None) or "").strip()
-        if not token:
-            continue
-        # ``load_pool()`` re-seeds pool rows from the singleton files, so a
-        # rotation that was consumed upstream but never committed comes back
-        # here looking healthy.  Enumeration is deliberately read-only
-        # (refresh=False), which means nothing on this path would otherwise
-        # notice that the credential is spent.  Singleton-backed sources also
-        # consult the durable sidecar registry: the failed commit may have
-        # happened in a DIFFERENT process, whose process-local verdict this
-        # interpreter never saw.
-        entry_source_path = spent_rotation_source_path(getattr(entry, "source", None))
-        if is_rotation_consumed_uncommitted(
-            token, source_path=entry_source_path
-        ) or is_rotation_consumed_uncommitted(
-            getattr(entry, "refresh_token", None), source_path=entry_source_path
-        ):
-            logger.debug(
-                "Skipping Anthropic pool entry %s: rotated-but-uncommitted credential",
-                getattr(entry, "id", "?"),
-            )
-            continue
-        return token
+        token = _usable_oauth_pool_token(entry)
+        if token:
+            return token
 
+    return None
+
+
+def resolve_anthropic_cooled_down_oauth_token() -> Optional[str]:
+    """Read-only: the OAuth token of a pool entry benched only by a quota cooldown.
+
+    ``resolve_anthropic_token()`` (via ``_available_entries``) deliberately skips
+    entries in a 429/quota cooldown, because chat must not route through them.
+    A diagnostic reader such as the usage panel has the opposite need: an account
+    that just hit its limit is still a valid login, and "at its limit" is the
+    state it most wants to show. Only STATUS_EXHAUSTED entries qualify: DEAD
+    entries (revoked / invalidated) are not usable accounts. Never mutates the
+    pool or the auth store and never refreshes.
+    """
+    try:
+        from agent.credential_pool import STATUS_EXHAUSTED, load_pool
+
+        entries = load_pool("anthropic").entries()
+    except Exception:
+        logger.debug("Failed to read Anthropic credential_pool for cooldown entries", exc_info=True)
+        return None
+
+    for entry in entries:
+        if getattr(entry, "last_status", None) != STATUS_EXHAUSTED:
+            continue
+        token = _usable_oauth_pool_token(entry)
+        if token:
+            return token
     return None
 
 
