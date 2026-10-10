@@ -36,6 +36,18 @@ def _model_supports_reasoning_effort(model: str | None) -> bool:
 class NebiusTokenFactoryProfile(ProviderProfile):
     """Nebius Token Factory - top-level reasoning_effort."""
 
+    def supported_reasoning_efforts(self, model: str | None) -> tuple[str, ...]:
+        """low/medium/high on the models the request path emits the field for.
+
+        Same conservative allowlist ``_model_supports_reasoning_effort`` the
+        request path gates on, and the same clamp set (``NEBIUS_EFFORTS``).
+        """
+        if not _model_supports_reasoning_effort(model):
+            return ()
+        from agent.reasoning_effort import NEBIUS_EFFORTS
+
+        return NEBIUS_EFFORTS
+
     def build_api_kwargs_extras(
         self,
         *,

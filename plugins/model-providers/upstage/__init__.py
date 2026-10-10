@@ -56,6 +56,19 @@ class UpstageProfile(ProviderProfile):
     turn it off with ``/reasoning none``.
     """
 
+    def supported_reasoning_efforts(self, model: str | None) -> tuple[str, ...]:
+        """Solar Pro/Open take low/medium/high; the deny-listed families none.
+
+        Mirrors the request path's own gate (``_model_supports_reasoning``)
+        and its clamp set (``SOLAR_EFFORTS``). ``minimal`` is deliberately
+        absent: on Solar it means thinking off, not a weaker effort.
+        """
+        if not _model_supports_reasoning(model):
+            return ()
+        from agent.reasoning_effort import SOLAR_EFFORTS
+
+        return SOLAR_EFFORTS
+
     def build_api_kwargs_extras(
         self, *, reasoning_config: dict | None = None, model: str | None = None, **context
     ) -> tuple[dict[str, Any], dict[str, Any]]:

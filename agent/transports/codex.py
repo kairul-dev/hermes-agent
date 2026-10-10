@@ -36,6 +36,7 @@ from agent.reasoning_effort import (
     XAI_LEGACY_EFFORTS,
     clamp_effort,
     codex_supported_efforts,
+    profile_declared_efforts,
 )
 from agent.transports.base import ProviderTransport
 from agent.transports.types import NormalizedResponse, ToolCall
@@ -308,33 +309,18 @@ def _profile_declared_efforts(
     which the host mandate routes onto this transport) must get that
     provider's declared vocabulary too — the host, not the config-entry
     name, is what validates the request.
+
+    The shared resolver owns the name-then-host resolution so the capability
+    a picker reads and the vocabulary this transport clamps onto cannot drift
+    apart; only the fail-open behavior lives here.
     """
     try:
-        from providers import get_provider_profile
-
-        name = str(provider or "").strip().lower()
-        profile = get_provider_profile(name) if name else None
-        declared = (
-            profile.supported_reasoning_efforts(model)
-            if profile is not None
-            else None
-        )
-        if declared is None and base_url:
-            from agent.model_metadata import _infer_provider_from_url
-
-            inferred = _infer_provider_from_url(str(base_url))
-            if inferred and inferred != name:
-                inferred_profile = get_provider_profile(inferred)
-                if inferred_profile is not None:
-                    declared = inferred_profile.supported_reasoning_efforts(model)
+        return profile_declared_efforts(provider, model, base_url)
     except Exception as exc:
         # Fail-open by design: a broken profile hook must never block the
         # request — the transport falls back to its default vocabulary.
         logger.debug("profile-declared efforts lookup failed: %s", exc)
         return None
-    if declared is None:
-        return None
-    return tuple(declared)
 
 
 def _is_azure_foundry_responses(params: Dict[str, Any]) -> bool:

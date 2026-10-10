@@ -6153,6 +6153,100 @@ def _load_reasoning_config(model: str = "") -> dict | None:
     return resolve_reasoning_config(_load_cfg(), model)
 
 
+def _session_reasoning_route(session: dict | None) -> dict:
+    """The provider/model/wire identity a session's reasoning runs on.
+
+    A built agent owns the live route; a session whose agent is still being
+    built (or has not been built yet) carries the composer's own pick in
+    ``model_override``. Whatever neither answers falls back to the profile's
+    configured model — the same order the agent build itself resolves in.
+
+    ``api_mode``/``base_url`` travel with it because they select the wire's
+    effort vocabulary: the same model slug takes a different ladder on the
+    Responses wire than on the OpenAI-compatible one.
+    """
+    route: dict = {"model": "", "provider": "", "api_mode": "", "base_url": ""}
+    session = session if isinstance(session, dict) else {}
+    agent = session.get("agent")
+    if agent is not None:
+        for key, attr in (
+            ("model", "model"),
+            ("provider", "provider"),
+            ("api_mode", "api_mode"),
+            ("base_url", "base_url"),
+        ):
+            route[key] = str(getattr(agent, attr, "") or "")
+    override = session.get("model_override")
+    if isinstance(override, dict):
+        for key in ("model", "provider", "api_mode", "base_url"):
+            if not route.get(key):
+                route[key] = str(override.get(key) or "")
+    try:
+        model_cfg = _load_cfg().get("model") or {}
+    except Exception:
+        model_cfg = {}
+    if not isinstance(model_cfg, dict):
+        model_cfg = {}
+    for key, cfg_key in (
+        ("model", "default"),
+        ("provider", "provider"),
+        ("base_url", "base_url"),
+    ):
+        if not route.get(key):
+            route[key] = str(model_cfg.get(cfg_key) or "")
+    return route
+
+
+def _reasoning_capability(session: dict | None, effort: str = "") -> dict:
+    """Hermes' authoritative reasoning capability for a session's route.
+
+    Reported next to ``value`` by ``config.get key=reasoning`` so a client can
+    render the real levels for THIS conversation without keeping its own
+    provider/model compatibility table:
+
+    - ``supported``: a reasoning control exists for the route (either the
+      graded levels below, or a model that reasons but only on/off);
+    - ``values``: the discrete levels the route can be asked for, ladder
+      ordered, read from the provider profile's declared vocabulary else the
+      transport's vocabulary for its wire;
+    - ``can_disable``: whether an explicit thinking-off is a known-accepted
+      request (``None`` = no catalog says, so no restriction known);
+    - ``effective``: Hermes' own translation of the session's current value
+      onto ``values`` — the level that will reach the wire. Equal to ``value``
+      whenever the pick is already supported.
+
+    Nothing here is derived from the model's *name*: both halves come from the
+    same declarations the request path clamps onto.
+    """
+    from agent.reasoning_effort import reasoning_capability
+
+    route = _session_reasoning_route(session)
+    requested = "" if str(effort or "").strip().lower() == "none" else effort
+    capability = reasoning_capability(
+        provider=route.get("provider") or None,
+        model=route.get("model") or None,
+        api_mode=route.get("api_mode") or None,
+        base_url=route.get("base_url") or None,
+        effort=requested,
+    )
+    if not capability["values"]:
+        # No graded dial declared. The model may still reason on/off (a
+        # capable-but-uncatalogued model, or a toggle-only route), which the
+        # capability maps answer from the model catalogs — reuse that verdict
+        # so a picker and a live conversation cannot disagree.
+        try:
+            from hermes_cli.inventory import model_reasoning_supported
+
+            capability["supported"] = bool(
+                model_reasoning_supported(route.get("provider") or "", route.get("model") or "")[0]
+            )
+        except Exception:
+            capability["supported"] = False
+    if not capability["supported"]:
+        capability["can_disable"] = False
+    return capability
+
+
 def _load_service_tier() -> str | None:
     raw = (
         str((_load_cfg().get("agent") or {}).get("service_tier", "") or "")
@@ -7729,7 +7823,18 @@ def _session_info(agent, session: dict | None = None) -> dict:
     )
     cfg_personality = ((_load_cfg().get("display") or {}).get("personality") or "")
     personality = (session or {}).get("personality", cfg_personality)
+    # The session's own pin (a session-scoped `config.set key=reasoning`) is the
+    # authority `config.get` already answers with, and it is what the next turn
+    # runs. The live agent can lag it: a pin set while the deferred agent build
+    # was still in flight is only applied when the agent is built, so the
+    # finished agent keeps reporting the PROFILE effort. Read the pin first so
+    # session.info / session.resume / session.activate cannot contradict
+    # `config.get` — clients that trusted info (desktop, Forge) reverted the
+    # user's pick to the profile value otherwise.
     reasoning_config = getattr(agent, "reasoning_config", None)
+    pin = (session or {}).get("create_reasoning_override")
+    if isinstance(pin, dict):
+        reasoning_config = pin
     reasoning_effort = ""
     if isinstance(reasoning_config, dict):
         if reasoning_config.get("enabled") is False:
@@ -15128,6 +15233,31 @@ def _(rid, params: dict) -> dict:
             parsed = parse_reasoning_effort(arg)
             if parsed is None:
                 return _err(rid, 4002, f"unknown reasoning value: {value}")
+            # Fail closed on a session-targeted change. ``session`` is None both
+            # when the caller asked for the profile value (no session_id at all —
+            # the intentional global path below) and when the caller NAMED a
+            # session that is no longer live: deleted, idle-reaped, LRU-evicted,
+            # or a stale id held by a client whose gateway restarted. The second
+            # case used to fall through to the global write, so a pick made in a
+            # conversation that had just gone away silently rewrote
+            # agent.reasoning_effort for every other session, profile, CLI and
+            # gateway build. Reject instead of guessing; an explicit
+            # ``scope: "global"`` still means the caller asked for the profile
+            # value and is left alone.
+            requested_session = str(params.get("session_id") or "").strip()
+            if (
+                session is None
+                and not global_scope
+                and (requested_session or scope == "session")
+            ):
+                return _err(
+                    rid,
+                    4001,
+                    "reasoning was not changed: session "
+                    f"{requested_session or '(none)'} is not live in this gateway "
+                    "and the profile default was left untouched (omit session_id "
+                    "to change agent.reasoning_effort for the profile)",
+                )
             if global_scope or session is None:
                 _write_config_key("agent.reasoning_effort", arg)
                 if session is not None:

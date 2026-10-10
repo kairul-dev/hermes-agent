@@ -281,7 +281,14 @@ def _(rid, params: dict) -> dict:
             if bool((cfg.get("display") or {}).get("show_reasoning", True))
             else "hide"
         )
-        return _ok(rid, {"value": effort, "display": display})
+        return _ok(
+            rid,
+            {
+                "value": effort,
+                "display": display,
+                "capability": _reasoning_capability(session, effort),
+            },
+        )
     if key == "fast":
         # Prefer the session's live/pinned value — `config.set fast` is
         # session-scoped, so the global key may not reflect this chat. A

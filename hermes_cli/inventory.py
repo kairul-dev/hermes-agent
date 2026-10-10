@@ -487,68 +487,100 @@ def _reasoning_catalog_reader(slug: str):
     return None
 
 
-def _apply_capabilities(rows: list[dict]) -> None:
-    """Attach a ``{model: {fast, reasoning, ...}}`` map to each provider row.
+def model_reasoning_supported(slug: str, model: str) -> bool:
+    """Whether *model* on provider *slug* takes a reasoning parameter at all.
 
-    `fast` mirrors ``model_supports_fast_mode`` (the same gate the runtime
-    enforces). `reasoning` comes from the models.dev catalog when known and
-    defaults to True otherwise — the effort dial is broadly accepted and a
-    no-op on models that ignore it, whereas hiding it from a capable-but-
-    uncatalogued model is the worse failure.
+    models.dev's verdict when it has one, else the aggregator catalog's
+    (openrouter/nous publish per-route reasoning detail), else True — the
+    effort dial is broadly accepted and a no-op on models that ignore it,
+    whereas hiding it from a capable-but-uncatalogued model is the worse
+    failure.
 
-    Aggregators that publish per-model reasoning detail add
-    `can_disable_reasoning`, False on reasoning-mandatory routes whose upstream
-    answers a disable with HTTP 400. Omitted when the catalog doesn't say,
-    which the UI reads as "no restriction known". Such a catalog also overrides
-    `reasoning` itself when it reports a route that takes no reasoning
-    parameter — a definitive negative from the provider actually serving the
-    model outranks the models.dev inference.
+    A catalog that serves the route outranks models.dev: no reasoning
+    parameter means no reasoning controls, so there is no disable to
+    describe either.
 
-    The catalog's `supported_efforts` list is deliberately NOT forwarded: it
-    under-reports. The Portal accepts and honors levels a route doesn't
-    advertise (``z-ai/glm-5.3`` publishes ``max, high, low`` yet serves
-    ``minimal`` at its lowest thinking), so filtering the picker by that list
-    would hide levels that demonstrably work.
+    Shared by the model-options capability map and the session-scoped
+    reasoning answer in ``tui_gateway`` so a picker and a live conversation
+    cannot disagree about whether a model reasons.
+
+    Returns ``(supported, can_disable_or_None)``.
     """
-    from hermes_cli.models import model_supports_fast_mode
-
     try:
         from agent.models_dev import get_model_capabilities
     except Exception:
         get_model_capabilities = None  # type: ignore[assignment]
 
+    reasoning = True
+    if get_model_capabilities is not None and slug:
+        try:
+            meta = get_model_capabilities(slug, model)
+            if meta is not None:
+                reasoning = bool(meta.supports_reasoning)
+        except Exception:
+            reasoning = True
+
+    can_disable: bool | None = None
+    if reasoning:
+        read_reasoning_catalog = _reasoning_catalog_reader(str(slug or "").lower())
+        if read_reasoning_catalog is not None:
+            try:
+                detail = read_reasoning_catalog(model)
+            except Exception:
+                detail = None
+            if detail and not detail.get("supports_reasoning"):
+                # For a route it serves, the aggregator's own catalog beats
+                # models.dev: no reasoning parameter means no reasoning
+                # controls, so there is no disable to describe either.
+                reasoning = False
+            elif detail:
+                can_disable = not detail.get("mandatory")
+    return reasoning, can_disable
+
+
+def _apply_capabilities(rows: list[dict]) -> None:
+    """Attach a ``{model: {fast, reasoning, supported_efforts, ...}}`` map per row.
+
+    `fast` mirrors ``model_supports_fast_mode`` (the same gate the runtime
+    enforces). `reasoning`/`can_disable_reasoning` come from
+    :func:`model_reasoning_supported`.
+
+    `supported_efforts` is the discrete effort ladder that route can actually
+    be asked for — read from the provider profile's declared vocabulary, else
+    from the transport's default vocabulary for its wire
+    (``agent.reasoning_effort.supported_efforts_for_route``, the same data the
+    request path clamps onto). An empty list means the route has no graded
+    dial: either it takes no reasoning parameter at all (`reasoning` False) or
+    it only has an on/off toggle. This is what lets a picker show a model's
+    real levels instead of guessing from a model name.
+
+    The catalog's own `supported_efforts` list is still deliberately NOT
+    forwarded: it under-reports. The Portal accepts and honors levels a route
+    doesn't advertise (``z-ai/glm-5.3`` publishes ``max, high, low`` yet serves
+    ``minimal`` at its lowest thinking), so filtering the picker by that list
+    would hide levels that demonstrably work. What IS forwarded is Hermes'
+    own declared wire vocabulary for the route, which is what Hermes will
+    validate and translate against.
+    """
+    from agent.reasoning_effort import supported_efforts_for_route
+    from hermes_cli.models import model_supports_fast_mode
+
     for row in rows:
         slug = row.get("slug") or ""
         caps: dict[str, dict[str, Any]] = {}
-        read_reasoning_catalog = _reasoning_catalog_reader(slug.lower())
 
         for model in row.get("models") or []:
-            reasoning = True
-            if get_model_capabilities is not None and slug:
-                try:
-                    meta = get_model_capabilities(slug, model)
-                    if meta is not None:
-                        reasoning = bool(meta.supports_reasoning)
-                except Exception:
-                    reasoning = True
+            reasoning, can_disable = model_reasoning_supported(slug, model)
 
             entry: dict[str, Any] = {
                 "fast": bool(model_supports_fast_mode(model)),
                 "reasoning": reasoning,
+                "supported_efforts": list(
+                    supported_efforts_for_route(slug, model)
+                ),
             }
-
-            if reasoning and read_reasoning_catalog is not None:
-                try:
-                    detail = read_reasoning_catalog(model)
-                except Exception:
-                    detail = None
-                if detail and not detail.get("supports_reasoning"):
-                    # For a route it serves, the aggregator's own catalog beats
-                    # models.dev: no reasoning parameter means no reasoning
-                    # controls, so there is no disable to describe either.
-                    entry["reasoning"] = False
-                elif detail:
-                    entry["can_disable_reasoning"] = not detail.get("mandatory")
+            if can_disable is not None:
+                entry["can_disable_reasoning"] = can_disable
 
             caps[model] = entry
 

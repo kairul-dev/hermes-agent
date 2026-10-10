@@ -122,6 +122,33 @@ def _glm_5_2_reasoning_effort(
 class ZaiProfile(ProviderProfile):
     """Z.AI / GLM — extra_body.thinking on/off + GLM-5.2 reasoning_effort."""
 
+    def supported_reasoning_efforts(self, model: str | None) -> tuple[str, ...]:
+        """GLM-5.3 → graded scale; GLM-5.2 → high/max only.
+
+        GLM-4.5/4.6 have a thinking toggle but no graded dial, and models
+        this profile does not recognise get no reasoning field at all — both
+        answer an empty tuple: no *levels* to pick. (The toggle itself is
+        reported separately through the model capability map's ``reasoning``
+        boolean.)
+        """
+        from agent.reasoning_effort import GLM52_EFFORTS, GLM53_EFFORTS
+
+        if _is_glm_5_3(model):
+            return GLM53_EFFORTS
+        if _is_glm_5_2(model):
+            return GLM52_EFFORTS
+        return ()
+
+    def reasoning_effort_overrides(self, model: str | None) -> dict[str, str] | None:
+        """``xhigh`` requests the top tier (``max``) on both GLM-5.x scales."""
+        from agent.reasoning_effort import GLM52_OVERRIDES, GLM53_OVERRIDES
+
+        if _is_glm_5_3(model):
+            return GLM53_OVERRIDES
+        if _is_glm_5_2(model):
+            return GLM52_OVERRIDES
+        return None
+
     def build_api_kwargs_extras(
         self, *, reasoning_config: dict | None = None, model: str | None = None, **context
     ) -> tuple[dict[str, Any], dict[str, Any]]:

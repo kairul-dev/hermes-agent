@@ -58,6 +58,16 @@ def _resolve_effort(reasoning_config: dict | None) -> str:
 class MetaAIProfile(ProviderProfile):
     """Meta Model API — top-level reasoning_effort, self-contained."""
 
+    def supported_reasoning_efforts(self, model: str | None) -> tuple[str, ...]:
+        """Muse's vocabulary: minimal..xhigh (it rejects ``none``).
+
+        Same set the request path clamps onto (``_resolve_effort``), and it
+        accepts the dial on every chat model it serves.
+        """
+        from agent.reasoning_effort import META_AI_EFFORTS
+
+        return META_AI_EFFORTS
+
     # Non-chat model prefixes excluded from the agent picker.  The live
     # /v1/models catalog includes image-generation and transcription models
     # that are not suitable for agentic chat.

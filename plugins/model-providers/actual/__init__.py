@@ -42,6 +42,17 @@ class ActualProfile(ProviderProfile):
     setting ACTUAL_BASE_URL to the local API URL.
     """
 
+    def supported_reasoning_efforts(self, model: str | None) -> tuple[str, ...]:
+        """SGLang/vLLM relays behind Actual take none/low/medium/high/max.
+
+        The same set ``agent.transports.codex`` clamps onto for this provider
+        (``ACTUAL_RELAY_EFFORTS``); ``none`` is dropped from the pickable
+        levels because it disables thinking rather than selecting an effort.
+        """
+        from agent.reasoning_effort import ACTUAL_RELAY_EFFORTS
+
+        return ACTUAL_RELAY_EFFORTS
+
     def fetch_models(
         self,
         *,
