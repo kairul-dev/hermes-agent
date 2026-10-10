@@ -69,10 +69,14 @@ _SHARED_NATIVE_MEMBER_METHODS = frozenset({
     "prompt.submit", "session.interrupt", "session.steer", "session.close",
     "session.usage", "session.context_breakdown", "session.status",
     "session.history", "session.events.since", "session.info.get", "orchestration.get", "orchestration.set",
-    "session.start_chat",
+    "session.start_chat", "session.control.read", "session.control",
     "approval.pending", "approval.received",
     "approval.respond", "clarify.lock", "request.answer",
 })
+# Member methods that persist or read per-session state in a profile store AND accept a ``profile`` param that
+# ``_profile_scoped`` honors over the session's own home. An override naming any other profile would aim the
+# session's key at a different profile's store, so it must match the session's profile or be denied.
+_SHARED_NATIVE_PROFILE_BOUND_METHODS = frozenset({"session.control.read", "session.control"})
 _SHARED_NATIVE_COLLECTION_METHODS = frozenset({"session.list", "session.active_list", "session.most_recent"})
 # Credential-free, session-aware reads exposed by the shared adapter. Without session_id these read
 # the launch-profile view; with one they require the same live owner membership as other session reads.
@@ -203,6 +207,30 @@ def _shared_reasoning_display_alias(value) -> bool:
     word = str(value or "").strip().lower()
     return any(word in words for words, _reported, _fields, _thinking, _show
                in methods_config_set._REASONING_DISPLAY_WORDS)
+
+
+def _shared_profile_override_denial(session: dict, params: dict) -> str | None:
+    """Why an explicit ``profile`` override may not accompany this session-bound call, or None.
+
+    Omitted (None / blank, exactly what ``_profile_scoped`` treats as omitted) binds the session's own
+    profile. A named profile is admitted only when it resolves to that same home; unknown, malformed or
+    different profiles are denied. Pure resolution: it never registers a served home or flips multiplexing.
+    """
+    requested = params.get("profile")
+    if requested is None or (isinstance(requested, str) and not requested.strip()):
+        return None
+    if not isinstance(requested, str):
+        return "the profile override is malformed"
+    try:
+        from hermes_cli import profiles as profiles_mod
+
+        named = Path(profiles_mod.get_profile_dir(_canonical_profile_request(requested.strip())))
+        own = Path(session.get("profile_home") or _hermes_home)
+        if named.resolve() == own.resolve():
+            return None
+    except Exception:
+        pass  # unresolvable names fail closed like any other mismatch
+    return "the profile override does not match the session's profile"
 
 
 def _shared_find_session_by_approval(request_id: str) -> dict | None:
@@ -348,6 +376,8 @@ def _shared_native_admission_error(rid, method: str, params: dict) -> dict | Non
         return _err(rid, ERR_SHARED_FORBIDDEN,
                     "shared runtime: session not found or not owned by this transport")
     denial = _shared_session_denial(current_transport(), session, require_membership=membership)
+    if not denial and method in _SHARED_NATIVE_PROFILE_BOUND_METHODS:
+        denial = _shared_profile_override_denial(session, params)
     if denial:
         return _err(rid, ERR_SHARED_FORBIDDEN, f"shared runtime: {denial}")
     return None
