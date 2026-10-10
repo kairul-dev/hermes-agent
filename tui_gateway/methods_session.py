@@ -159,8 +159,14 @@ def _listing_rows(db, limit: int, *, require_owner: bool = False, **kwargs) -> l
     caller = current_transport()
     if caller is None and policy is False:
         caller = _stdio_transport  # ordinary mode: an in-process caller is the verified local owner
+    owned_only = require_owner or policy is not False
+    if owned_only:
+        verifiable, owner = _shared_owner_key(caller)
+        if not verifiable:
+            return []
+        kwargs["owner_user_id"] = owner
     rows = db.list_sessions_rich(source=None, limit=limit, order_by_last_active=True, compact_rows=True, **kwargs)
-    if require_owner or policy is not False:
+    if owned_only:
         rows = [row for row in rows if _shared_record_owner_matches(caller, row, "user_id")]
     return [row for row in rows if not _denied_source(row)]
 
@@ -502,22 +508,9 @@ def _create_session(rid, params: dict, *, copy_parent_history: bool = False) -> 
         logger.info("session.create %s: model=%s provider=%s source=client override (profile default: %s)",
                     key, session_model_override["model"], session_model_override.get("provider") or "-",
                     _session_default_route(_sessions[sid])[0])
-    # No DB row here (drafts left "Untitled" litter): created on the first prompt — except seeded sessions.
-    # NOTE: we intentionally do NOT persist a DB row here. Every TUI/desktop launch (and every "New agent" /
-    # draft) opens a session here just to paint the composer, so eagerly creating a row left an "Untitled"
-    # empty session behind for every launch the user never typed into. The row is now created lazily on the
-    # first prompt (see _ensure_session_db_row + prompt.submit), and the AIAgent's own INSERT-OR-IGNORE
-    # persists it on the first turn too. EXCEPTION — seeded branch children (#93959): a desktop branch
-    # carries parent_session_id AND a seeded transcript, which is explicit user intent, not an abandoned
-    # draft. The row MUST exist immediately: the renderer's post-create resume re-fetches the child through
-    # REST + defer_history hydration, both of which read the DB — an unpersisted child 404s, the fail-latch
-    # then refuses to bind a "transcript-less" session, and the user sees an infinite spinner whose
-    # optimistic row vanishes on restart. Persisting up front also means a restart keeps the branch (both
-    # reports lost it) and the title lands in the parent's lineage instead of falling back to a
-    # message-preview name. Title mirrors the TUI /branch naming.
-    # The same holds for a seeded session WITHOUT a parent (a client opening a chat with its first turns
-    # already written): the transcript exists only in memory, so a restart before the first prompt lost it
-    # and the post-create resume 404'd. Persist it up front too; only empty drafts stay lazy.
+    # Empty drafts stay lazy to avoid abandoned "Untitled" rows. Seeded sessions must persist now:
+    # post-create REST/resume hydration reads the DB, so an unpersisted transcript 404s and leaves
+    # a spinner; a restart also loses it (#93959). Branch titles belong to the parent's lineage.
     if parent_session_id and history:
         _seed_branch_row(_sessions[sid], key, parent_session_id, history, source, profile_home)
     elif history:
@@ -578,7 +571,7 @@ def _session_list_by_title(rid, db, title_lookup: str) -> dict:
     strict_shared = shared_runtime_enabled()
     row = db.get_session_by_title(title_lookup)
     if strict_shared and row and not _shared_record_owner_matches(current_transport(), row, "user_id"):
-        return _ok(rid, {"sessions": []})
+        return _err(rid, ERR_SHARED_FORBIDDEN, "shared runtime: the requested title is not owned by this transport")
     if row and row.get("archived"):
         from tools.bot_mode_probe import BOT_CHAT_TITLE
         # A Bot Chat archived by the ws-orphan reaper / agent_close is an accident (the desktop would mint
@@ -599,7 +592,7 @@ def _session_list_by_title(rid, db, title_lookup: str) -> dict:
         tip = db.get_compression_tip(row["id"]) or row["id"]
     tip_row = (db.get_session(tip) or row) if tip != row["id"] else row
     if strict_shared and not _shared_record_owner_matches(current_transport(), tip_row, "user_id"):
-        return _ok(rid, {"sessions": []})
+        return _err(rid, ERR_SHARED_FORBIDDEN, "shared runtime: the requested title is not owned by this transport")
     return _ok(rid, {"sessions": [_session_row_summary(row, tip_row=tip_row, resolved_id=tip, db=db)]})
 
 

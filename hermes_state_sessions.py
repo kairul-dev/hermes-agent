@@ -42,6 +42,8 @@ def _delegate_from_json(col: str = "model_config") -> str:
 # _merge_model_config_json's "no such row" result — distinct from the legal None
 # ("merged config is empty → store NULL").
 _MODEL_CONFIG_ROW_MISSING = object()
+# None selects the local owner; omission leaves ordinary listings unfiltered.
+_UNFILTERED_OWNER = object()
 
 # ``lineage(id)``: the compression lineage of the session bound twice as ``(?, ?)`` —
 # ancestors through compression-ended parents plus compression continuations after it.
@@ -134,7 +136,7 @@ def _session_filter_where(
     *, exclude_children: bool = False, source: str | None = None, sources: list[str] | None = None,
     session_key: str | None = None, exclude_sources: list[str] | None = None, cwd_prefix: str | None = None,
     min_message_count: int = 0, archived_only: bool = False, include_archived: bool = False,
-    include_subagents: bool = False,
+    include_subagents: bool = False, owner_user_id: Any = _UNFILTERED_OWNER,
 ) -> tuple[list[str], list[Any]]:
     """Shared ``sessions s`` WHERE builder so counts line up with listed rows. ``exclude_children``
     hides sub-agent runs and compression continuations but keeps branch/reset children
@@ -146,14 +148,7 @@ def _session_filter_where(
         where.append(f"({_LISTABLE_CHILD_SQL} OR {_delegate_from_json('s.model_config')} IS NOT NULL)")
     elif exclude_children:
         where += [_LISTABLE_CHILD_SQL, f"{_delegate_from_json('s.model_config')} IS NULL"]
-    # Show roots and user-visible branch/reset sessions, while still hiding sub-agent runs and compression
-    # continuations. All four carry parent_session_id, so the shared predicate classifies the edge from
-    # stable markers plus legacy-compatible parent metadata. Branch sessions are identified two ways, OR'd
-    # for robustness: 1. A stable ``_branched_from`` marker in model_config, written by /branch at creation
-    # time. This survives the parent being reopened and re-ended with a different end_reason (e.g.
-    # tui_shutdown overwriting 'branched'), which otherwise hides the branch — see issue #20856. 2. The
-    # legacy heuristic (parent ended with 'branched' before the child started), covering branch sessions
-    # created before the marker existed.
+    # Branch markers survive reopened parents; legacy edges keep older branch/reset children visible (#20856).
     include_sources = [source] if source else list(sources or [])
     for clause, values in (
         (f"s.source IN ({_session_ids_placeholders(include_sources)})", include_sources),
@@ -169,6 +164,9 @@ def _session_filter_where(
         where.append("s.archived = 1")
     elif not include_archived:
         where.append("s.archived = 0")
+    if owner_user_id is not _UNFILTERED_OWNER:
+        where.append("s.user_id IS ?")
+        params.append(owner_user_id)
     return where, params
 
 
@@ -1415,18 +1413,19 @@ class SessionSessionsMixin:
         order_by_last_active: bool = False, include_archived: bool = False, archived_only: bool = False,
         id_query: str | None = None, search_query: str | None = None, compact_rows: bool = False,
         include_pinned: bool = False, session_key: str | None = None, include_hidden: bool = False,
-        include_subagents: bool = False,
+        include_subagents: bool = False, owner_user_id: Any = _UNFILTERED_OWNER,
     ) -> list[dict[str, Any]]:
         """List sessions with preview and ``last_active`` in one query. ``order_by_last_active`` sorts
         by the chain TIP via a recursive CTE (the only path honouring ``id_query`` / ``search_query``);
         ``include_pinned`` back-fills pins the page missed, still obeying the other
         filters except archived: a pin is an explicit keep, so a pinned row stamped
-        archived must still return."""
+        archived must still return. ``owner_user_id=None`` selects only the local owner."""
         self.flush_token_counts()  # rows carry token/cost totals
         where_clauses, params = _session_filter_where(
             exclude_children=not include_children, source=source, sources=sources, session_key=session_key,
             exclude_sources=exclude_sources, cwd_prefix=cwd_prefix, min_message_count=min_message_count,
             archived_only=archived_only, include_archived=include_archived, include_subagents=include_subagents,
+            owner_user_id=owner_user_id,
         )
         # The archived-only view is the recovery surface for rows that dropped out of every
         # default list: a session that is archived AND hidden (Bot Mode marks its sessions
@@ -1504,7 +1503,7 @@ class SessionSessionsMixin:
                 exclude_children=not include_children, source=source, sources=sources,
                 session_key=session_key, exclude_sources=exclude_sources, cwd_prefix=cwd_prefix,
                 min_message_count=min_message_count, archived_only=False, include_archived=True,
-                include_subagents=include_subagents,
+                include_subagents=include_subagents, owner_user_id=owner_user_id,
             )
             if not include_hidden and not archived_only:
                 pinned_clauses.append("s.hidden = 0")
