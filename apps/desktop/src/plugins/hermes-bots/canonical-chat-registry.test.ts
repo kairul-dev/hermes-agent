@@ -93,6 +93,19 @@ beforeEach(() => {
 })
 
 describe('the registry row wins, always', () => {
+  it('stops on a foreign-owner denial without creating or opening a replacement', async () => {
+    const calls = respondWith(() => {
+      throw Object.assign(new Error('shared runtime: the requested title is not owned by this transport'), { code: 4403 })
+    })
+    const { openBotCanonicalChat, createCanonicalChat } = await loadModule()
+
+    await expect(openBotCanonicalChat('ops')).rejects.toThrow(/not starting a new chat/)
+    await expect(createCanonicalChat('ops')).rejects.toThrow(/not starting a new chat/)
+    expect(calls.map(call => call.method)).toEqual(['session.list', 'session.list'])
+    expect(hostMock.openSession).not.toHaveBeenCalled()
+    expect(saveBotMetaMock).not.toHaveBeenCalled()
+  })
+
   it('resolves the profile\u2019s "Bot Chat" row by exact title and opens it', async () => {
     const calls = respondWith(method => {
       if (method === 'session.list') {
