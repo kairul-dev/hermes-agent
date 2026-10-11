@@ -3757,7 +3757,7 @@ export const deOverrides = {
       resetsNow: 'Wird jetzt zurückgesetzt',
       updatedJustNow: 'Gerade aktualisiert',
       updatedAgo: age => `Aktualisiert ${age}`,
-      stale: 'Aktualisierung fehlgeschlagen – letzte bekannte Nutzung wird angezeigt',
+      stale: 'Aktualisierung fehlgeschlagen – letzte bekannte Nutzung wird angezeigt'
     },
     groupAriaGrouped: 'Sessions als einzelne Liste anzeigen',
     groupAriaUngrouped: 'Sessions nach Workspace gruppieren',

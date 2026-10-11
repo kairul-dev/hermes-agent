@@ -3221,7 +3221,7 @@ export const zhOverrides = {
       resetsNow: '即将重置',
       updatedJustNow: '刚刚更新',
       updatedAgo: age => `${age}更新`,
-      stale: '无法刷新，显示的是上次的用量',
+      stale: '无法刷新，显示的是上次的用量'
     },
     groupAriaGrouped: '以单一列表显示会话',
     groupAriaUngrouped: '按工作区分组会话',

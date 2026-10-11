@@ -89,9 +89,13 @@ describe('handleSessionInfoEvent workspace ownership', () => {
 
       ctx.event.connectionId = kind === 'missing-connection' ? undefined : 'local'
 
-      if (kind === 'missing-profile') {ctx.event.profile = undefined}
+      if (kind === 'missing-profile') {
+        ctx.event.profile = undefined
+      }
 
-      if (kind === 'foreign-source') {ctx.fromActiveSource = () => false}
+      if (kind === 'foreign-source') {
+        ctx.fromActiveSource = () => false
+      }
       handleSessionInfoEvent(ctx)
       expect(getSessionOwnerHints(id)).toEqual([])
     }

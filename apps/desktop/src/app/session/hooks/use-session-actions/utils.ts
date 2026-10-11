@@ -1637,11 +1637,13 @@ export function overlayConcurrentMessageChanges(
   const nextIndexById = new Map(nextMessages.map((message, index) => [message.id, index]))
 
   const nextUserRowIds = new Set(
-    nextMessages.filter(message => message.role === 'user').flatMap(message =>
-      typeof message.rowId === 'number' && Number.isSafeInteger(message.rowId) && message.rowId > 0
-        ? [message.rowId]
-        : []
-    )
+    nextMessages
+      .filter(message => message.role === 'user')
+      .flatMap(message =>
+        typeof message.rowId === 'number' && Number.isSafeInteger(message.rowId) && message.rowId > 0
+          ? [message.rowId]
+          : []
+      )
   )
 
   let changed = false

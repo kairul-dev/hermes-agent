@@ -2355,7 +2355,7 @@ export const jaOverrides = {
       resetsNow: 'まもなくリセット',
       updatedJustNow: 'たった今更新',
       updatedAgo: age => `${age}に更新`,
-      stale: '更新できませんでした。前回の使用量を表示しています',
+      stale: '更新できませんでした。前回の使用量を表示しています'
     },
     groupAriaGrouped: 'セッションを単一リストとして表示',
     groupAriaUngrouped: 'ワークスペースごとにセッションをグループ化',

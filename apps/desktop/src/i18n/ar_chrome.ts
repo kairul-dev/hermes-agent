@@ -222,7 +222,7 @@ export const arChrome = {
       resetsNow: 'إعادة التعيين الآن',
       updatedJustNow: 'تم التحديث الآن',
       updatedAgo: age => `تم التحديث ${age}`,
-      stale: 'تعذّر التحديث — يُعرض آخر استخدام معروف',
+      stale: 'تعذّر التحديث — يُعرض آخر استخدام معروف'
     },
     groupAriaGrouped: 'الجلسات مجمعة حسب مساحة العمل',
     groupAriaUngrouped: 'الجلسات غير مجمعة',

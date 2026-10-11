@@ -3751,7 +3751,7 @@ export const esOverrides = {
       resetsNow: 'Se restablece ahora',
       updatedJustNow: 'Actualizado ahora mismo',
       updatedAgo: age => `Actualizado ${age}`,
-      stale: 'No se pudo actualizar: se muestra el último uso conocido',
+      stale: 'No se pudo actualizar: se muestra el último uso conocido'
     },
     groupAriaGrouped: 'Mostrar sesiones como una sola lista',
     groupAriaUngrouped: 'Agrupar sesiones por espacio de trabajo',

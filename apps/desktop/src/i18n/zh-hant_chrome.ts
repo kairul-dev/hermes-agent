@@ -113,7 +113,7 @@ export const zhHantChrome = {
       resetsNow: '即將重置',
       updatedJustNow: '剛剛更新',
       updatedAgo: age => `${age}更新`,
-      stale: '無法重新整理，顯示的是上次的用量',
+      stale: '無法重新整理，顯示的是上次的用量'
     },
     groupAriaGrouped: '以單一清單顯示工作階段',
     groupAriaUngrouped: '依工作區分組工作階段',

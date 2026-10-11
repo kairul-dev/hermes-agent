@@ -3320,7 +3320,7 @@ export const en: Translations = {
       resetsNow: 'Resets now',
       updatedJustNow: 'Updated just now',
       updatedAgo: age => `Updated ${age}`,
-      stale: 'Couldn’t refresh — showing the last known usage',
+      stale: 'Couldn’t refresh — showing the last known usage'
     },
     groupAriaGrouped: 'Show sessions as a single list',
     groupAriaUngrouped: 'Group sessions by workspace',

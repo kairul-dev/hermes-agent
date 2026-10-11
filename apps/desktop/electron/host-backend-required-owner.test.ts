@@ -115,7 +115,10 @@ test('records on other ports are ignored while an owner is required', async () =
 test('without a required owner a commit mismatch is still refused (upstream behavior unchanged)', async () => {
   const attached = await attachToHostBackend(
     { isolated: false, ledgerPath: '/ledger.json' },
-    deps({ backendCodeIdentity: async () => 'owner-commit', expectedCodeIdentity: async () => 'desktop-checkout-commit' })
+    deps({
+      backendCodeIdentity: async () => 'owner-commit',
+      expectedCodeIdentity: async () => 'desktop-checkout-commit'
+    })
   )
 
   assert.equal(attached, null)

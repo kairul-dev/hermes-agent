@@ -3766,7 +3766,7 @@ export const frOverrides = {
       resetsNow: 'Réinitialisation imminente',
       updatedJustNow: 'Mis à jour à l’instant',
       updatedAgo: age => `Mis à jour ${age}`,
-      stale: 'Actualisation impossible : dernière utilisation connue affichée',
+      stale: 'Actualisation impossible : dernière utilisation connue affichée'
     },
     groupAriaGrouped: 'Afficher les sessions en une seule liste',
     groupAriaUngrouped: 'Grouper les sessions par espace de travail',

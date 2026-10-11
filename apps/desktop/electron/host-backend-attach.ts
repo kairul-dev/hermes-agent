@@ -44,7 +44,12 @@ export async function verifyManagedHostIdentity(record: HostBackendRecord, token
 
   const identity = response.ok ? await response.json() : null
 
-  return identity?.ok === true && identity?.protocolVersion === 1 && identity?.pid === record.pid && identity?.role === 'serve'
+  return (
+    identity?.ok === true &&
+    identity?.protocolVersion === 1 &&
+    identity?.pid === record.pid &&
+    identity?.role === 'serve'
+  )
 }
 
 export interface HostBackendAttachDeps {
@@ -361,7 +366,9 @@ export async function attachOrReserveSpawn(
       }
     }
 
-    throw new Error(`The shared Hermes backend on ${options.requiredBaseUrl} is not ready. Start its managed service and retry.`)
+    throw new Error(
+      `The shared Hermes backend on ${options.requiredBaseUrl} is not ready. Start its managed service and retry.`
+    )
   }
 
   while (gate.now() < (found === UNCONFIRMED ? Math.min(deadline, identityDeadline) : deadline)) {
